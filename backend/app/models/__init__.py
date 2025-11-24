@@ -3,3 +3,4 @@ from .project import Project
 from .plan import Plan
 from .subscription import Subscription
 from .payment import Payment
+from .end_user import EndUser

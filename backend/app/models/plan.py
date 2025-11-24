@@ -1,10 +1,11 @@
 ﻿from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey
+from sqlalchemy.orm import relationship
 
 from app.db.base_class import Base
 
 
 class SubscriptionPlan(Base):
-    __tablename__ = "subscription_plans"  # таблица тарифов
+    __tablename__ = "plans"  # <--- ВАЖНО: имя таблицы plans
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
@@ -13,12 +14,13 @@ class SubscriptionPlan(Base):
     duration_days = Column(Integer, nullable=False, default=30)
     active = Column(Boolean, default=True)
 
-    # к какому проекту (каналу) относится тариф
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
 
+    project = relationship("Project", back_populates="plans", lazy="joined", uselist=False)
+    subscriptions = relationship("Subscription", back_populates="plan")
 
-# 👇 чтобы работали оба импорта:
-# from app.models.plan import SubscriptionPlan
-# и from app.models.plan import Plan
+
+# чтобы работали оба импорта:
+#   from app.models.plan import SubscriptionPlan
+#   from app.models.plan import Plan
 Plan = SubscriptionPlan
-
