@@ -18,7 +18,7 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
-app.include_router(payments.router, prefix="/api/v1/payments")
+app.include_router(payments.router, prefix="/api/v1/payments", tags=["payments"])
 
 
 @app.get("/")

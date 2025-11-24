@@ -1,7 +1,7 @@
 ﻿import aiohttp
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import settings
 
@@ -19,67 +19,58 @@ async def subscriber_start(message: Message):
 
 @router.callback_query(F.data.startswith("buy:"))
 async def buy_plan(callback: CallbackQuery):
+    # callback_data у нас вида "buy:1"
     plan_id = int(callback.data.split(":", 1)[1])
-    await callback.answer()  # закрыть "часики" на кнопке
-
-    # 1) Создаём подписку в backend
-    payload = {
-        "telegram_id": callback.from_user.id,
-        "language": "en",
-        "plan_id": plan_id,
-    }
-
+    # 1) Получаем информацию о тарифе из backend
     async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"{settings.BACKEND_URL}/api/v1/subscriptions/from-plan",
-            json=payload,
-        ) as resp:
+        async with session.get(f"{settings.BACKEND_URL}/api/v1/plans/{plan_id}") as resp:
             if resp.status != 200:
                 text = await resp.text()
                 await callback.message.answer(
-                    f"❌ Ошибка при создании подписки.\nСтатус: {resp.status}\n{text}"
+                    f"❌ Не удалось получить тариф.\nСтатус: {resp.status}\n{text}"
                 )
                 return
+            plan = await resp.json()
 
-            sub_data = await resp.json()
+        amount = float(plan["price"])
+        currency = plan["currency"]
+        project_id = plan["project_id"]
 
-        project_id = sub_data.get("project_id")
-
-        # 2) Тянем информацию о проекте (канале), чтобы узнать telegram_channel_id
-        async with session.get(
-            f"{settings.BACKEND_URL}/api/v1/projects/{project_id}"
+        # 2) Создаём Stripe Checkout Session
+        async with session.post(
+            f"{settings.BACKEND_URL}/api/v1/payments/stripe/session",
+            params={
+                "plan_id": plan_id,
+                "project_id": project_id,
+                "amount": amount,
+                "currency": currency,
+                "telegram_id": callback.from_user.id,  # 👈 ДОБАВИЛИ ВАЖНОЕ ПОЛЕ
+            },
         ) as resp2:
             if resp2.status != 200:
+                text = await resp2.text()
                 await callback.message.answer(
-                    "Подписка создана, но не удалось найти канал. Обратитесь к автору."
+                    f"❌ Не удалось создать платёжную сессию.\nСтатус: {resp2.status}\n{text}"
                 )
                 return
-            project = await resp2.json()
+            data = await resp2.json()
 
-    channel_id = project.get("telegram_channel_id")
-    channel_title = project.get("title") or "канал"
+    checkout_url = data["checkout_url"]
 
-    # 3) Создаём одноразовую инвайт-ссылку в канал
-    try:
-        invite_link = await callback.bot.create_chat_invite_link(
-            chat_id=channel_id,
-            member_limit=1,  # ссылка для одного пользователя
-        )
-        link = invite_link.invite_link
-    except Exception as e:
-        await callback.message.answer(
-            "✅ Подписка создана, но я не смог выдать ссылку на канал.\n"
-            "Скорее всего, бот не является администратором канала "
-            "или у него нет прав приглашать пользователей.\n\n"
-            f"Техническая ошибка: {e}"
-        )
-        return
-
-    end_at = sub_data.get("end_at")
-
+    # 3) Отправляем пользователю кнопку с оплатой
     await callback.message.answer(
-        "✅ Подписка успешно создана.\n"
-        f"Канал: {channel_title}\n"
-        f"Подписка действует до: {end_at}\n\n"
-        f"Вот твоя ссылка для входа в канал:\n{link}"
+        "💳 Для оформления подписки оплатите тариф по ссылке:",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="Оплатить через Stripe 💸",
+                        url=checkout_url,
+                    )
+                ]
+            ]
+        ),
     )
+
+    # 👉 На этом этапе МЫ НЕ СОЗДАЁМ подписку и не выдаём инвайт!
+    # Это сделаем позже через Stripe webhook (когда будет подтверждение оплаты).
