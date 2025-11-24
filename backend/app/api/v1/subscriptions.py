@@ -6,11 +6,15 @@ from app.core.deps import get_db
 from app.models.end_user import EndUser
 from app.models.subscription import Subscription
 from app.models.plan import SubscriptionPlan
+from app.models.project import Project
 from app.schemas.subscription import SubscriptionRead, SubscriptionFromPlanCreate
 
 router = APIRouter()
 
 
+# ================================================================
+#   СОЗДАНИЕ ПОДПИСКИ ПО ПЛАНУ (использовалось раньше)
+# ================================================================
 @router.post("/from-plan", response_model=SubscriptionRead)
 def create_subscription_from_plan(
     payload: SubscriptionFromPlanCreate,
@@ -33,7 +37,11 @@ def create_subscription_from_plan(
         db.refresh(end_user)
 
     # 2. Найти план
-    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == payload.plan_id).first()
+    plan = (
+        db.query(SubscriptionPlan)
+        .filter(SubscriptionPlan.id == payload.plan_id)
+        .first()
+    )
     if not plan:
         raise HTTPException(status_code=400, detail="Plan not found")
 
@@ -54,5 +62,40 @@ def create_subscription_from_plan(
     db.add(subscription)
     db.commit()
     db.refresh(subscription)
+
+    return subscription
+
+
+# ================================================================
+#   НОВЫЙ ВАЖНЕЙШИЙ ЭНДПОИНТ:
+#   ПРОВЕРИТЬ АКТИВНУЮ ПОДПИСКУ ПО telegram_id + project_id
+# ================================================================
+@router.get("/active", response_model=SubscriptionRead)
+def get_active_subscription_for_user(
+    telegram_id: int,
+    project_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Вернуть активную подписку для пользователя в проекте.
+    Активная = status='active' и end_at > сейчас.
+    """
+
+    now = datetime.utcnow()
+
+    subscription = (
+        db.query(Subscription)
+        .join(EndUser, Subscription.end_user_id == EndUser.id)
+        .filter(
+            EndUser.telegram_id == telegram_id,
+            Subscription.project_id == project_id,
+            Subscription.status == "active",
+            Subscription.end_at > now,
+        )
+        .first()
+    )
+
+    if not subscription:
+        raise HTTPException(status_code=404, detail="No active subscription")
 
     return subscription
