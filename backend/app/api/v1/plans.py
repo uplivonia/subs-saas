@@ -48,3 +48,10 @@ def create_plan(payload: PlanCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(plan)
     return plan
+
+@router.get("/{plan_id}")
+def get_plan(plan_id: int, db: Session = Depends(get_db)):
+    plan = db.query(Plan).filter(Plan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return plan
