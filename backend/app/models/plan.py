@@ -16,7 +16,11 @@ class SubscriptionPlan(Base):
 
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
 
-    project = relationship("Project", back_populates="plans", lazy="joined", uselist=False)
+    project = relationship(
+        "Project",
+        backref="plans",   # <-- вместо back_populates
+        lazy="joined",
+    )
     subscriptions = relationship("Subscription", back_populates="plan")
 
 
