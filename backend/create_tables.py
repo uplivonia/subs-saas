@@ -16,25 +16,23 @@ def show_columns(conn):
 def main():
     print("=== Using DB:", engine.url, "===")
 
-    # создаём таблицы, если их ещё нет
-    Base.metadata.create_all(bind=engine)
-    print("Tables created (if not existed).")
-
-    # ВАЖНО: engine.begin() -> транзакция с автоматическим COMMIT
+    # сначала покажем, что было
     with engine.begin() as conn:
-        print("=== BEFORE ALTER ===")
+        print("=== BEFORE DROP ===")
         show_columns(conn)
 
-        ddl = "ALTER TABLE payments ADD COLUMN telegram_id BIGINT"
-        print("Trying to add column telegram_id to payments...")
+        print("Dropping table payments (if exists)...")
+        conn.execute(text("DROP TABLE IF EXISTS payments CASCADE"))
+        print("✅ payments dropped")
 
-        try:
-            conn.execute(text(ddl))
-            print("✅ Column telegram_id added")
-        except Exception as e:
-            print("ℹ️ ALTER TABLE error (maybe column exists):", e)
+    # создаём все таблицы по моделям
+    print("Creating tables from models...")
+    Base.metadata.create_all(bind=engine)
+    print("Tables created.")
 
-        print("=== AFTER ALTER ===")
+    # смотрим, что стало с payments
+    with engine.begin() as conn:
+        print("=== AFTER CREATE ===")
         show_columns(conn)
 
 
