@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.v1.routes import api_router
+from app.api.v1 import payments
+
 
 
 app = FastAPI(title=settings.PROJECT_NAME)
@@ -16,6 +18,7 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+app.include_router(payments.router, prefix="/api/v1/payments")
 
 
 @app.get("/")

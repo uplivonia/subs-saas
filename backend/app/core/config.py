@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = "app"
     POSTGRES_DB: str = "app"
 
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    BACKEND_PUBLIC_URL: str = ""
+
     BOT_TOKEN: str = "CHANGE_ME"
 
     @property
