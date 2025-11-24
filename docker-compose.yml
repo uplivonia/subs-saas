@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports:
+      - "5432:5432"
+
+  backend:
+    build: ./backend
+    environment:
+      POSTGRES_HOST: db
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+
+  bot:
+    build: ./bot
+    depends_on:
+      - backend
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"

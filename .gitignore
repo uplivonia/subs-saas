@@ -1,0 +1,28 @@
+# IDE / editors
+.vs/
+.vscode/
+
+# Python venv
+venv/
+backend/venv/
+bot/venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Node / Next.js
+node_modules/
+frontend/.next/
+frontend/.turbo/
+
+# Env files
+.env
+*.env
+backend/.env
+bot/.env
+frontend/.env
+frontend/.env.local
+
+# Misc
+.DS_Store
