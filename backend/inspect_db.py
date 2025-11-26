@@ -44,10 +44,9 @@ def show_subscriptions(db):
 
         print(f"""
 ID: {s.id}
-EndUser ID: {s.end_user_id}
 Telegram ID: {telegram}
 Plan: {plan.name if plan else '❓ missing plan'}
-Project: {project.name if project else '❓ missing project'}
+Project: {project.title if project else '❓ missing project'}
 Start: {s.start_at}
 End: {s.end_at}
 Status: {s.status}
@@ -68,3 +67,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
