@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+﻿from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -15,7 +15,11 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str = ""
     BACKEND_PUBLIC_URL: str = ""
 
-    BOT_TOKEN: str = "CHANGE_ME"
+    BOT_TOKEN: str = "8350395273:AAEFuqUZi7Gpaq1MCzM2Cn3HbmguI37lECg"
+
+    SECRET_KEY: str = (
+        "4c52f9b0b2a64a0d847d9300dcf742b2a0a6c97f8c1b49e9b6e15a84f3fdc9ad"
+    )  # 👈 добавили
 
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:
@@ -29,3 +33,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
