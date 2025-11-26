@@ -2,6 +2,8 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from fastapi import Depends
+
 
 from app.core.deps import get_db
 from app.models.project import Project
@@ -18,18 +20,38 @@ def list_projects(db: Session = Depends(get_db)):
     return projects
 
 
-@router.get("/by_owner/{telegram_id}", response_model=List[ProjectRead])
-def list_projects_by_owner(telegram_id: int, db: Session = Depends(get_db)):
-    """
-    Вернуть все проекты, привязанные к автору с данным telegram_id.
-    Это то, что потом будет отображаться в его web-панели.
-    """
-    user = db.query(User).filter(User.telegram_id == telegram_id).first()
-    if not user:
-        return []
+@router.get("/{project_id}/check_bot")
+async def check_bot_status(project_id: int, db: Session = Depends(get_db)):
+    from app.core.config import settings
+    import requests
 
-    projects = db.query(Project).filter(Project.user_id == user.id).all()
-    return projects
+    bot_token = settings.BOT_TOKEN
+    if not bot_token or bot_token == "CHANGE_ME":
+        return {"ok": False, "error": "BOT_TOKEN not configured"}
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        return {"ok": False, "error": "Project not found"}
+
+    channel = project.channel_username
+    if not channel:
+        return {"ok": False, "error": "Channel username missing"}
+
+    # Telegram API → getChatMember
+    url = f"https://api.telegram.org/bot{bot_token}/getChatMember"
+    params = {
+        "chat_id": channel if channel.startswith("@") else f"@{channel}",
+        "user_id": (await requests.get(f"https://api.telegram.org/bot{bot_token}/getMe")).json()["result"]["id"]
+    }
+
+    r = requests.get(url, params=params).json()
+
+    if "result" in r:
+        status = r["result"]["status"]
+        if status in ("administrator", "creator"):
+            return {"ok": True}
+
+    return {"ok": False, "response": r}
 
 
 @router.post("/", response_model=ProjectRead)
