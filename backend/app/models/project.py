@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, Boolean, ForeignKey
+﻿from sqlalchemy import Column, Integer, BigInteger, String, Boolean, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
@@ -11,7 +11,10 @@ class Project(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    telegram_channel_id = Column(BigInteger, nullable=False, index=True)
+
+    # ⭐ ДЕЛАЕМ nullable=True — это критично для приватных каналов
+    telegram_channel_id = Column(BigInteger, nullable=True, index=True)
+
     title = Column(String, nullable=True)
     username = Column(String, nullable=True)
     active = Column(Boolean, default=True)

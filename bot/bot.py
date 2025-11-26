@@ -15,23 +15,23 @@ dp = Dispatcher()
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    # парсим аргументы после /start
+    # parse args after /start
     text = message.text or ""
     args = None
     if " " in text:
         args = text.split(" ", 1)[1].strip()
 
-    # если deep link: /start project_3
+    # deep link: /start project_3
     if args and args.startswith("project_"):
         try:
             project_id = int(args.split("_", 1)[1])
         except ValueError:
-            await message.answer("Некорректный параметр ссылки.")
+            await message.answer("Invalid link parameter.")
             return
 
         telegram_id = message.from_user.id
 
-        # 🔍 1. Проверяем активную подписку
+        # 🔍 1. Check active subscription
         async with aiohttp.ClientSession() as session:
             try:
                 async with session.get(
@@ -44,9 +44,9 @@ async def cmd_start(message: Message):
 
                         await message.answer(
                             (
-                                "🎉 У вас уже есть активная подписка на этот канал.\n"
-                                f"Она действует до: <b>{end_at}</b>\n\n"
-                                "Можете смело переходить в канал 😉"
+                                "🎉 You already have an active subscription to this channel.\n"
+                                f"It is valid until: <b>{end_at}</b>\n\n"
+                                "You can safely use the channel 😉"
                             ),
                             parse_mode="HTML",
                         )
@@ -54,26 +54,29 @@ async def cmd_start(message: Message):
 
                     elif resp_sub.status not in (200, 404):
                         text_err = await resp_sub.text()
-                        print(f"Error checking subscription: {resp_sub.status} {text_err}")
+                        print(
+                            f"Error checking subscription: "
+                            f"{resp_sub.status} {text_err}"
+                        )
 
             except Exception as e:
                 print("Exception while checking subscription:", e)
 
-        # 💳 2. Тянем тарифы если подписки нет
+        # 💳 2. Load plans if there is no active subscription
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"{settings.BACKEND_URL}/api/v1/plans/project/{project_id}"
             ) as resp:
                 if resp.status != 200:
-                    await message.answer("Ошибка при загрузке тарифов.")
+                    await message.answer("Error while loading plans.")
                     return
                 plans = await resp.json()
 
         if not plans:
-            await message.answer("Для этого канала пока нет активных тарифов.")
+            await message.answer("This channel has no active plans yet.")
             return
 
-        # строим клавиатуру с тарифами
+        # build keyboard with plans
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -87,12 +90,12 @@ async def cmd_start(message: Message):
         )
 
         await message.answer(
-            "Выберите тариф для оформления подписки:",
+            "Choose a plan to start your subscription:",
             reply_markup=keyboard,
         )
         return
 
-    # обычный /start
+    # default /start
     await message.answer(
         "Hi! I am Subscription Bot.\n"
         "Are you a channel creator or subscriber?\n"
@@ -109,4 +112,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
