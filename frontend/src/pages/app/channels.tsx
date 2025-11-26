@@ -1,4 +1,5 @@
 import AppLayout from "@/components/AppLayout";
+import Link from "next/link";
 
 export default function ChannelsPage() {
     return (
@@ -8,10 +9,15 @@ export default function ChannelsPage() {
                 <p className="text-sm text-slate-600 mb-4">
                     Here you will see all Telegram channels connected to your account.
                 </p>
-                <button className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
+
+                <Link
+                    href="/app/channels/new"
+                    className="inline-flex px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                >
                     + Add channel
-                </button>
+                </Link>
             </div>
         </AppLayout>
     );
 }
+

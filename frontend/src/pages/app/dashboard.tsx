@@ -1,4 +1,5 @@
 ﻿import AppLayout from "@/components/AppLayout";
+import Link from "next/link";
 
 export default function Dashboard() {
     // пока всё статично, позже подтащим реальные данные с бэка
@@ -34,16 +35,22 @@ export default function Dashboard() {
                             <h2 className="text-sm font-medium text-slate-800">
                                 Connected channels
                             </h2>
-                            <span className="text-xs text-indigo-600 cursor-pointer">
+                            <Link
+                                href="/app/channels"
+                                className="text-xs text-indigo-600 cursor-pointer"
+                            >
                                 View all
-                            </span>
+                            </Link>
                         </div>
                         <p className="text-sm text-slate-500 mb-4">
                             You don&apos;t have any channels yet.
                         </p>
-                        <button className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
+                        <Link
+                            href="/app/channels/new"
+                            className="inline-flex px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                        >
                             + Add channel
-                        </button>
+                        </Link>
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-xl p-4">
