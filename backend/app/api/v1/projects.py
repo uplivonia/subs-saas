@@ -2,10 +2,10 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from fastapi import Depends
-
+import requests
 
 from app.core.deps import get_db
+from app.core.config import settings
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectRead
@@ -21,37 +21,43 @@ def list_projects(db: Session = Depends(get_db)):
 
 
 @router.get("/{project_id}/check_bot")
-async def check_bot_status(project_id: int, db: Session = Depends(get_db)):
-    from app.core.config import settings
-    import requests
-
+def check_bot_status(project_id: int, db: Session = Depends(get_db)):
+    """
+    Проверяем, добавлен ли бот в админы канала.
+    """
     bot_token = settings.BOT_TOKEN
     if not bot_token or bot_token == "CHANGE_ME":
-        return {"ok": False, "error": "BOT_TOKEN not configured"}
+        raise HTTPException(status_code=500, detail="BOT_TOKEN not configured")
 
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
-        return {"ok": False, "error": "Project not found"}
+        raise HTTPException(status_code=404, detail="Project not found")
 
-    channel = project.channel_username
-    if not channel:
-        return {"ok": False, "error": "Channel username missing"}
+    # Пытаемся взять либо username, либо numeric chat_id
+    if project.username:
+        chat_id = project.username if project.username.startswith("@") else f"@{project.username}"
+    elif project.telegram_channel_id:
+        chat_id = project.telegram_channel_id
+    else:
+        return {"ok": False, "error": "Channel not configured"}
 
-    # Telegram API → getChatMember
-    url = f"https://api.telegram.org/bot{bot_token}/getChatMember"
-    params = {
-        "chat_id": channel if channel.startswith("@") else f"@{channel}",
-        "user_id": (await requests.get(f"https://api.telegram.org/bot{bot_token}/getMe")).json()["result"]["id"]
-    }
+    # Получаем ID бота
+    me_resp = requests.get(f"https://api.telegram.org/bot{bot_token}/getMe").json()
+    bot_id = me_resp.get("result", {}).get("id")
+    if not bot_id:
+        return {"ok": False, "error": "Cannot get bot id", "response": me_resp}
 
-    r = requests.get(url, params=params).json()
+    # Проверяем статус бота в канале
+    resp = requests.get(
+        f"https://api.telegram.org/bot{bot_token}/getChatMember",
+        params={"chat_id": chat_id, "user_id": bot_id},
+    ).json()
 
-    if "result" in r:
-        status = r["result"]["status"]
-        if status in ("administrator", "creator"):
-            return {"ok": True}
+    status = resp.get("result", {}).get("status")
+    if status in ("administrator", "creator"):
+        return {"ok": True}
 
-    return {"ok": False, "response": r}
+    return {"ok": False, "response": resp}
 
 
 @router.post("/", response_model=ProjectRead)
@@ -75,6 +81,7 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(project)
     return project
+
 
 @router.get("/{project_id}", response_model=ProjectRead)
 def get_project(project_id: int, db: Session = Depends(get_db)):
