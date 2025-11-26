@@ -1,12 +1,15 @@
-export default function Dashboard() {
-  return (
-    <div className="min-h-screen">
-      <header className="p-4 border-b border-slate-700">
-        <h1 className="text-xl font-semibold">Dashboard</h1>
-      </header>
-      <main className="p-4">
-        <p>Here you will see your channels and basic analytics.</p>
-      </main>
-    </div>
-  );
+import { useRouter } from "next/router";
+import { useEffect } from "react";
+
+export default function AppPage() {
+    const router = useRouter();
+
+    useEffect(() => {
+        if (router.query.token) {
+            localStorage.setItem("token", router.query.token as string);
+            router.replace("/app/dashboard");
+        }
+    }, [router.query]);
+
+    return <p>Loading...</p>;
 }
