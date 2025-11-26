@@ -1,231 +1,115 @@
-﻿import { useState } from "react";
-import AppLayout from "@/components/AppLayout";
+﻿import AppLayout from "@/components/AppLayout";
 import { useRouter } from "next/router";
+import { useEffect, useState } from "react";
 
+const TELEGRAM_BOT_USERNAME = "oneclicksub_bot";
+const API_BASE = "https://subs-saas.onrender.com/api/v1";
 
 export default function AddChannelPage() {
     const router = useRouter();
+    const [checking, setChecking] = useState(false);
+    const [projectsCount, setProjectsCount] = useState<number | null>(null);
 
-    const [step, setStep] = useState(1);
-
-    const [projectId, setProjectId] = useState<number | null>(null);
-
-    // ---- FORM STATE ----
-    const [channel, setChannel] = useState("");
-    const [title, setTitle] = useState("");
-    const [desc, setDesc] = useState("");
-
-    const [price, setPrice] = useState("4.99");
-
-    const [checkingBot, setCheckingBot] = useState(false);
-    const [botOK, setBotOK] = useState(false);
-
-    // ---- API BASE ----
-    const API_BASE = "https://subs-saas.onrender.com/api/v1";
+    const creatorLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=creator`;
 
     const token =
         typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
-    // ------------------------------------------
-    // STEP 1 → CREATE PROJECT
-    // ------------------------------------------
-    const handleCreateProject = async () => {
-        if (!channel.trim()) {
-            alert("Please enter a channel username");
-            return;
-        }
+    const handleCheck = async () => {
+        setChecking(true);
+        try {
+            const res = await fetch(`${API_BASE}/projects/`, {
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+            });
 
-        const body = {
-            channel_username: channel.replace("@", "").trim(),
-            title: title || channel,
-            description: desc,
-        };
+            if (!res.ok) {
+                const text = await res.text();
+                console.error("Error loading projects:", text);
+                alert("Could not check channels yet. Try again in a few seconds.");
+                setChecking(false);
+                return;
+            }
 
-        const res = await fetch(`${API_BASE}/projects/`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: token ? `Bearer ${token}` : "",
-            },
-            body: JSON.stringify(body),
-        });
+            const data = await res.json();
+            setProjectsCount(data.length || 0);
 
-        if (!res.ok) {
-            alert("Error creating project");
-            return;
-        }
-
-        const data = await res.json();
-        setProjectId(data.id);
-        setStep(2);
-    };
-
-    // ------------------------------------------
-    // STEP 2 → CREATE PLAN
-    // ------------------------------------------
-    const handleCreatePlan = async () => {
-        if (!projectId) return;
-
-        const body = {
-            project_id: projectId,
-            name: "Monthly subscription",
-            price: Number(price),
-            currency: "USD",
-            interval: "monthly",
-        };
-
-        const res = await fetch(`${API_BASE}/plans/`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: token ? `Bearer ${token}` : "",
-            },
-            body: JSON.stringify(body),
-        });
-
-        if (!res.ok) {
-            alert("Error creating plan");
-            return;
-        }
-
-        setStep(3);
-    };
-
-    // ------------------------------------------
-    // STEP 3 → CHECK BOT ADMIN STATUS
-    // ------------------------------------------
-    const handleCheckBot = async () => {
-        if (!projectId) return;
-
-        setCheckingBot(true);
-
-        const res = await fetch(`${API_BASE}/projects/${projectId}/check_bot`, {
-            headers: {
-                Authorization: token ? `Bearer ${token}` : "",
-            },
-        });
-
-        setCheckingBot(false);
-
-        const data = await res.json();
-
-        if (data.ok) {
-            setBotOK(true);
-            setTimeout(() => {
-                router.push("/app/channels");
-            }, 1500);
-        } else {
-            alert("Bot is not admin yet. Please add @FansteroBot as admin.");
+            if (data.length > 0) {
+                // Канал(ы) уже есть — отправляем в список
+                setTimeout(() => {
+                    router.push("/app/channels");
+                }, 1000);
+            } else {
+                alert(
+                    "No channels found yet. Make sure you added the bot and forwarded a message from your channel."
+                );
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Network error while checking channels.");
+        } finally {
+            setChecking(false);
         }
     };
 
-    // ==========================================
-    // RENDER
-    // ==========================================
     return (
         <AppLayout title="Add Channel">
             <div className="max-w-xl mx-auto bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-                <h1 className="text-2xl font-semibold mb-1">
-                    Add Telegram Channel
+                <h1 className="text-2xl font-semibold mb-2">
+                    Connect your private channel
                 </h1>
                 <p className="text-sm text-slate-600 mb-6">
-                    Connect your channel and start selling subscriptions.
+                    We will use Telegram bot to securely connect your private channel.
+                    You don&apos;t need @username — just add the bot to your channel.
                 </p>
 
-                {/* PROGRESS STEPS */}
-                <div className="flex items-center justify-between mb-6">
-                    {[1, 2, 3].map((s) => (
-                        <div
-                            key={s}
-                            className={`w-full h-1 mx-1 rounded-full ${step >= s ? "bg-indigo-600" : "bg-slate-200"
-                                }`}
-                        />
-                    ))}
-                </div>
+                <ol className="text-sm text-slate-700 space-y-3 mb-6 list-decimal list-inside">
+                    <li>
+                        Click the button below to open{" "}
+                        <span className="font-medium">@{TELEGRAM_BOT_USERNAME}</span> in
+                        Telegram.
+                    </li>
+                    <li>
+                        In Telegram, follow the instructions:
+                        <br />
+                        <span className="text-slate-600">
+                            – add the bot as an admin to your private channel <br />
+                            – forward any message from that channel to the bot
+                        </span>
+                    </li>
+                    <li>
+                        Come back here and press{" "}
+                        <span className="font-medium">“Check connection”</span>.
+                    </li>
+                </ol>
 
-                {step === 1 && (
-                    <div className="space-y-4">
-                        <div>
-                            <label className="text-sm font-medium">Channel username</label>
-                            <input
-                                className="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg"
-                                placeholder="@mychannel"
-                                value={channel}
-                                onChange={(e) => setChannel(e.target.value)}
-                            />
-                        </div>
+                <div className="space-y-4">
+                    <a
+                        href={creatorLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block w-full text-center bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700"
+                    >
+                        Open Telegram and connect channel
+                    </a>
 
-                        <div>
-                            <label className="text-sm font-medium">Title (optional)</label>
-                            <input
-                                className="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg"
-                                placeholder="My Channel"
-                                value={title}
-                                onChange={(e) => setTitle(e.target.value)}
-                            />
-                        </div>
+                    <button
+                        onClick={handleCheck}
+                        className="w-full border border-slate-300 text-slate-800 py-3 rounded-xl text-sm hover:bg-slate-50"
+                        disabled={checking}
+                    >
+                        {checking ? "Checking..." : "I have added the bot, check connection"}
+                    </button>
 
-                        <div>
-                            <label className="text-sm font-medium">Description (optional)</label>
-                            <textarea
-                                className="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg"
-                                rows={3}
-                                placeholder="What is this channel about?"
-                                value={desc}
-                                onChange={(e) => setDesc(e.target.value)}
-                            />
-                        </div>
-
-                        <button
-                            onClick={handleCreateProject}
-                            className="mt-4 w-full bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700"
-                        >
-                            Next
-                        </button>
-                    </div>
-                )}
-
-                {step === 2 && (
-                    <div className="space-y-4">
-                        <div>
-                            <label className="text-sm font-medium">Monthly price (USD)</label>
-                            <input
-                                className="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg"
-                                value={price}
-                                onChange={(e) => setPrice(e.target.value)}
-                            />
-                        </div>
-
-                        <button
-                            onClick={handleCreatePlan}
-                            className="mt-4 w-full bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700"
-                        >
-                            Next
-                        </button>
-                    </div>
-                )}
-
-                {step === 3 && (
-                    <div className="space-y-4">
-                        <p className="text-slate-700 text-sm">
-                            Please add <strong>@FansteroBot</strong> as an administrator to your Telegram channel.
-                            Enable permissions: <strong>Add users</strong> and <strong>Remove users</strong>.
+                    {projectsCount !== null && (
+                        <p className="text-xs text-slate-500">
+                            Found <span className="font-semibold">{projectsCount}</span>{" "}
+                            project(s) linked to your account.
                         </p>
-
-                        <button
-                            onClick={handleCheckBot}
-                            className="mt-4 w-full bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700"
-                        >
-                            {checkingBot ? "Checking..." : "Check bot status"}
-                        </button>
-
-                        {botOK && (
-                            <div className="text-green-600 text-sm pt-2 font-medium">
-                                ✓ Bot is admin! Redirecting...
-                            </div>
-                        )}
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
         </AppLayout>
     );
