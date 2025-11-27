@@ -18,9 +18,9 @@ async def cmd_start(message: Message):
     """
     Main /start handler.
 
-    - /start project_<id>  -> show plans / subscription flow
-    - /start connect_<code> -> handled in creator.py (we just ignore here)
-    - /start               -> generic welcome message
+    - /start connect_<code> -> creator.connect flow (from website button)
+    - /start project_<id>   -> subscription flow (subscriber side)
+    - plain /start          -> generic info message
     """
 
     text = message.text or ""
@@ -28,12 +28,13 @@ async def cmd_start(message: Message):
     if " " in text:
         args = text.split(" ", 1)[1].strip()
 
-    # Deep link for connecting channel is handled in creator.py
+    # 1) Deep link from website: /start connect_<code>
     if args and args.startswith("connect_"):
-        # Do nothing here, creator.py CommandStart(deep_link=True) will respond
+        connection_code = args.split("connect_", 1)[1].strip()
+        await creator.start_connect_flow(message, connection_code)
         return
 
-    # Deep link: /start project_3  (subscription flow)
+    # 2) Deep link: /start project_<id>  (subscription flow)
     if args and args.startswith("project_"):
         try:
             project_id = int(args.split("_", 1)[1])
@@ -43,7 +44,7 @@ async def cmd_start(message: Message):
 
         telegram_id = message.from_user.id
 
-        # 1) Check active subscription
+        # 2.1) Check active subscription
         async with aiohttp.ClientSession() as session:
             try:
                 async with session.get(
@@ -74,7 +75,7 @@ async def cmd_start(message: Message):
             except Exception as e:
                 print("Exception while checking subscription:", e)
 
-        # 2) Load plans if there is no active subscription
+        # 2.2) Load plans if there is no active subscription
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"{settings.BACKEND_URL}/api/v1/plans/project/{project_id}"
@@ -107,7 +108,7 @@ async def cmd_start(message: Message):
         )
         return
 
-    # Default /start (no deep-link)
+    # 3) Default /start (no deep-link)
     await message.answer(
         "Hi! I am Subscription Bot.\n\n"
         "– If you are a channel creator, please open the website and connect your channel from the dashboard.\n"
@@ -116,10 +117,8 @@ async def cmd_start(message: Message):
 
 
 async def main():
-    # Register routers with handlers
     dp.include_router(creator.router)
     dp.include_router(subscriber.router)
-
     await dp.start_polling(bot)
 
 

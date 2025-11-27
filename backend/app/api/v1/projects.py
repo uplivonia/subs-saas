@@ -29,10 +29,29 @@ class ConnectChannelPayload(BaseModel):
 # ==== Список проектов ====
 
 @router.get("/", response_model=List[ProjectRead])
-def list_projects(db: Session = Depends(get_db)):
-    """Temporary: list all projects (for debugging / Channels page)."""
-    projects = db.query(Project).all()
+def list_projects(
+    authorization: str = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Return only projects that belong to logged-in user."""
+    
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    token = authorization.split(" ", 1)[1]
+
+    try:
+        payload_jwt = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        sub = payload_jwt.get("sub")
+        if sub is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        user_id = int(sub)
+    except (JWTError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    projects = db.query(Project).filter(Project.user_id == user_id).all()
     return projects
+
 
 
 # ==== Проверка, что бот админ (можем оставить для "Check connection" по желанию) ====
