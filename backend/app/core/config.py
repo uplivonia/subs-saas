@@ -11,16 +11,19 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = "app"
     POSTGRES_DB: str = "app"
 
-    STRIPE_SECRET_KEY: str = ""
-    STRIPE_WEBHOOK_SECRET: str = ""
-    BACKEND_PUBLIC_URL: str = ""
+    # ⚠️ БЕЗ дефолтов, обязательно из env/.env
+    STRIPE_SECRET_KEY: str
+    STRIPE_WEBHOOK_SECRET: str
+
+    # Тут можно дефолты, не страшно
+    BACKEND_PUBLIC_URL: str = "https://subs-saas.onrender.com"
     FRONTEND_URL: str = "https://fanstero.netlify.app"
 
     BOT_TOKEN: str = "8350395273:AAEFuqUZi7Gpaq1MCzM2Cn3HbmguI37lECg"
 
     SECRET_KEY: str = (
         "4c52f9b0b2a64a0d847d9300dcf742b2a0a6c97f8c1b49e9b6e15a84f3fdc9ad"
-    )  # 👈 добавили
+    )
 
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:
@@ -31,7 +34,9 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
 
 
 settings = Settings()
+
 
