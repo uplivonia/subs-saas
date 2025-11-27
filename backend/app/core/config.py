@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
     BACKEND_PUBLIC_URL: str = ""
+    FRONTEND_URL: str = "https://fanstero.netlify.app"
 
     BOT_TOKEN: str = "8350395273:AAEFuqUZi7Gpaq1MCzM2Cn3HbmguI37lECg"
 

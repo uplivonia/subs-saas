@@ -44,15 +44,15 @@ async def on_start_deeplink(message: Message, command: CommandObject):
     message.bot['pending_code'][message.from_user.id] = connection_code
 
     keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="➕ Add bot to your channel",
-                    url=f"https://t.me/{(await message.bot.get_me()).username}?start",
-                )
-            ]
+    inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="➕ Add bot to your channel",
+                url=f"https://t.me/{(await message.bot.get_me()).username}?startgroup=connect"
+            )
         ]
-    )
+    ]
+)
 
     await message.answer(
         "🔗 Let's connect your private channel!\n\n"
