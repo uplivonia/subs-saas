@@ -85,7 +85,6 @@ export default function SettingsPage() {
                 return;
             }
 
-            // Open Stripe onboarding in new tab
             window.open(url, "_blank", "noopener,noreferrer");
         } catch (e) {
             console.error("Network error while creating Stripe link:", e);
@@ -116,7 +115,7 @@ export default function SettingsPage() {
                         </h2>
                         <p className="text-sm text-slate-600">
                             Connect your Stripe account to receive subscription payments
-                            from your private channels. We never store card data — Stripe
+                            from your private channels. We never store card data, Stripe
                             handles all payments securely.
                         </p>
                     </div>
@@ -125,7 +124,7 @@ export default function SettingsPage() {
                         <div>
                             {loading && (
                                 <p className="text-xs text-slate-500">
-                                    Checking Stripe connection…
+                                    Checking Stripe connection...
                                 </p>
                             )}
 
