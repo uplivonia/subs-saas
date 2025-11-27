@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, HTTPException, Depends, Request
+﻿from fastapi import APIRouter, HTTPException, Depends, Request, Header
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 
@@ -9,10 +9,41 @@ from app.models.payment import Payment
 from app.models.end_user import EndUser
 from app.models.subscription import Subscription
 from app.models.plan import SubscriptionPlan
+from app.models.user import User
 
 import stripe
+from jose import jwt, JWTError
 
 router = APIRouter()
+
+ALGORITHM = "HS256"
+
+
+# =========================================================
+# Helper: get current User from JWT token (Authorization)
+# =========================================================
+def get_current_user_from_token(authorization: str | None, db: Session) -> User:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401, detail="Missing or invalid Authorization header"
+        )
+
+    token = authorization.split(" ", 1)[1]
+
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        sub = payload.get("sub")
+        if sub is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        user_id = int(sub)
+    except (JWTError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return user
 
 
 # ---------------------------
@@ -66,7 +97,9 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     sig_header = request.headers.get("stripe-signature")
 
     if not settings.STRIPE_WEBHOOK_SECRET:
-        raise HTTPException(status_code=500, detail="STRIPE_WEBHOOK_SECRET is not set")
+        raise HTTPException(
+            status_code=500, detail="STRIPE_WEBHOOK_SECRET is not set"
+        )
 
     try:
         event = stripe.Webhook.construct_event(
@@ -152,7 +185,9 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         db.add(subscription)
         db.commit()
 
-        print(f"[WEBHOOK] ✅ Subscription created: {subscription.id} for user {payment.telegram_id}")
+        print(
+            f"[WEBHOOK] ✅ Subscription created: {subscription.id} for user {payment.telegram_id}"
+        )
 
     return {"received": True}
 
@@ -165,3 +200,80 @@ async def stripe_success(session_id: str):
 @router.get("/stripe/cancel")
 async def stripe_cancel():
     return {"status": "canceled"}
+
+
+# =========================================================
+# STRIPE CONNECT: CREATOR PAYOUT ACCOUNT
+# =========================================================
+
+@router.post("/connect/link")
+async def create_connect_link(
+    authorization: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Creates or reuses a Stripe Express account for the current user
+    and returns an onboarding link.
+    """
+    user = get_current_user_from_token(authorization, db)
+
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="STRIPE_SECRET_KEY is not set")
+
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+
+    # 1) Создаём Stripe Account, если его ещё нет
+    if not user.stripe_account_id:
+        account = stripe.Account.create(
+            type="express",
+        )
+        user.stripe_account_id = account.id
+        db.commit()
+        db.refresh(user)
+
+    # Берём URL фронта (куда вернётся юзер после онбординга)
+    frontend_url = getattr(settings, "FRONTEND_URL", None) or "https://fanstero.netlify.app"
+    frontend_url = frontend_url.rstrip("/")
+
+    # 2) Создаём Account Link для онбординга
+    account_link = stripe.AccountLink.create(
+        account=user.stripe_account_id,
+        refresh_url=f"{frontend_url}/app/settings",
+        return_url=f"{frontend_url}/app/settings",
+        type="account_onboarding",
+    )
+
+    return {"url": account_link["url"]}
+
+
+@router.get("/connect/status")
+async def connect_status(
+    authorization: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns whether the current user has a connected Stripe account.
+    Also, if we have an account but not onboarded yet,
+    we check Stripe's `details_submitted` and update flag.
+    """
+    user = get_current_user_from_token(authorization, db)
+
+    connected = bool(user.stripe_account_id and user.stripe_onboarded)
+
+    # Попробуем обновить stripe_onboarded, если аккаунт есть, но флаг ещё False
+    if user.stripe_account_id and not user.stripe_onboarded and settings.STRIPE_SECRET_KEY:
+        try:
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            account = stripe.Account.retrieve(user.stripe_account_id)
+            if account.get("details_submitted", False):
+                user.stripe_onboarded = True
+                db.commit()
+                connected = True
+        except Exception as e:
+            print("Stripe connect_status error:", e)
+
+    return {
+        "connected": connected,
+        "stripe_account_id": user.stripe_account_id,
+        "stripe_onboarded": user.stripe_onboarded,
+    }
