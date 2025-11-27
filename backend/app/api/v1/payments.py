@@ -224,24 +224,46 @@ async def create_connect_link(
 
     # 1) Создаём Stripe Account, если его ещё нет
     if not user.stripe_account_id:
-        account = stripe.Account.create(
-            type="express",
-        )
+        try:
+            account = stripe.Account.create(
+                type="express",
+            )
+        except stripe.error.InvalidRequestError as e:
+            # Это как раз тот случай "You can only create new accounts if..."
+            print("Stripe Connect error while creating account:", e)
+            raise HTTPException(
+                status_code=400,
+                detail="Stripe Connect is not enabled or not fully configured for this Stripe account. "
+                       "Please double-check Connect settings and API key mode (test/live)."
+            )
+        except Exception as e:
+            print("Stripe generic error while creating account:", e)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Stripe error while creating account: {str(e)}"
+            )
+
         user.stripe_account_id = account.id
         db.commit()
         db.refresh(user)
 
-    # Берём URL фронта (куда вернётся юзер после онбординга)
     frontend_url = getattr(settings, "FRONTEND_URL", None) or "https://fanstero.netlify.app"
     frontend_url = frontend_url.rstrip("/")
 
-    # 2) Создаём Account Link для онбординга
-    account_link = stripe.AccountLink.create(
-        account=user.stripe_account_id,
-        refresh_url=f"{frontend_url}/app/settings",
-        return_url=f"{frontend_url}/app/settings",
-        type="account_onboarding",
-    )
+    try:
+        # 2) Создаём Account Link для онбординга
+        account_link = stripe.AccountLink.create(
+            account=user.stripe_account_id,
+            refresh_url=f"{frontend_url}/app/settings",
+            return_url=f"{frontend_url}/app/settings",
+            type="account_onboarding",
+        )
+    except Exception as e:
+        print("Stripe error while creating account link:", e)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Stripe error while creating account link: {str(e)}"
+        )
 
     return {"url": account_link["url"]}
 
