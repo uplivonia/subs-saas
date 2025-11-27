@@ -211,6 +211,9 @@ async def create_connect_link(
     authorization: str = Header(None),
     db: Session = Depends(get_db),
 ):
+    # вот тут уже можно печатать
+    print(">>> USING STRIPE KEY:", settings.STRIPE_SECRET_KEY[:10])
+
     """
     Creates or reuses a Stripe Express account for the current user
     and returns an onboarding link.
