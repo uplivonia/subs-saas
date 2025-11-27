@@ -82,19 +82,11 @@ def create_project(
     authorization: str = Header(None),
     db: Session = Depends(get_db),
 ):
-    """
-    Step 1: create a project (paid channel) and link it to the owner.
-
-    ❗ Owner is detected automatically from JWT token in Authorization header.
-    We no longer rely on payload.owner_telegram_id.
-    """
-
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
 
     token = authorization.split(" ", 1)[1]
 
-    # Decode JWT and extract user id from "sub"
     try:
         payload_jwt = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         sub = payload_jwt.get("sub")
@@ -104,22 +96,16 @@ def create_project(
     except (JWTError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    # Find user by internal id
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Generate short connection code that will be used in bot deep link
-    connection_code = secrets.token_hex(3)  # e.g. "a3f1c2"
-
-    settings_dict = {
-        "connection_code": connection_code,
-        "status": "pending",
-    }
+    connection_code = secrets.token_hex(3)
+    settings_dict = {"connection_code": connection_code, "status": "pending"}
 
     project = Project(
         user_id=user.id,
-        telegram_channel_id=None,  # not known yet
+        telegram_channel_id=None,
         title=payload.title,
         username=None,
         active=payload.active,
