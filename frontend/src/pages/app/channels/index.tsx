@@ -87,9 +87,11 @@ export default function ChannelsPage() {
                 {!loading && projects && projects.length > 0 && (
                     <div className="space-y-4">
                         {projects.map((project) => {
+                            // FIXED STATUS LOGIC HERE 🔥
                             const status =
-                                project.settings?.status ??
-                                (project.telegram_channel_id ? "connected" : "pending");
+                                project.telegram_channel_id
+                                    ? "connected"
+                                    : project.settings?.status ?? "pending";
 
                             return (
                                 <div
@@ -100,12 +102,14 @@ export default function ChannelsPage() {
                                         <h2 className="text-sm font-semibold text-slate-900">
                                             {project.title || "Unnamed channel"}
                                         </h2>
+
                                         <p className="text-xs text-slate-500 mt-1">
                                             Channel ID:{" "}
                                             {project.telegram_channel_id
                                                 ? project.telegram_channel_id
                                                 : "not linked yet"}
                                         </p>
+
                                         <p className="text-xs text-slate-500 mt-1">
                                             Status:{" "}
                                             <span
@@ -120,7 +124,6 @@ export default function ChannelsPage() {
                                         </p>
                                     </div>
 
-                                    {/* Пока просто заглушка на будущее: страница настроек конкретного канала */}
                                     <Link
                                         href={`/app/channels/${project.id}`}
                                         className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
