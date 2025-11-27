@@ -8,14 +8,44 @@ const API_BASE = "https://subs-saas.onrender.com/api/v1";
 export default function AddChannelPage() {
     const router = useRouter();
     const [checking, setChecking] = useState(false);
+    const [autoChecking, setAutoChecking] = useState(false);
     const [projectsCount, setProjectsCount] = useState<number | null>(null);
-
-    const creatorLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=creator`;
 
     const token =
         typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
-    const handleCheck = async () => {
+    // Deep-link that opens the bot in "creator" mode
+    const creatorLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=creator`;
+
+    const checkProjectsAuto = async () => {
+        try {
+            const res = await fetch(`${API_BASE}/projects/`, {
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+            });
+
+            if (!res.ok) {
+                const text = await res.text();
+                console.error("Error loading projects (auto):", text);
+                return;
+            }
+
+            const data = await res.json();
+            setProjectsCount(data.length || 0);
+
+            if (data.length > 0) {
+                // At least one channel is connected – send user to the channels list
+                router.push("/app/channels");
+                setAutoChecking(false);
+            }
+        } catch (e) {
+            console.error("Network error while auto-checking channels.", e);
+        }
+    };
+
+    const handleCheckManual = async () => {
         setChecking(true);
         try {
             const res = await fetch(`${API_BASE}/projects/`, {
@@ -37,13 +67,13 @@ export default function AddChannelPage() {
             setProjectsCount(data.length || 0);
 
             if (data.length > 0) {
-                // Канал(ы) уже есть — отправляем в список
+                // Channel(s) already exist – send user to the list
                 setTimeout(() => {
                     router.push("/app/channels");
-                }, 1000);
+                }, 800);
             } else {
                 alert(
-                    "No channels found yet. Make sure you added the bot and forwarded a message from your channel."
+                    "No channels found yet. Make sure you added the bot as admin and completed the steps in Telegram."
                 );
             }
         } catch (e) {
@@ -54,61 +84,104 @@ export default function AddChannelPage() {
         }
     };
 
+    const handleOpenTelegram = () => {
+        // Open bot in Telegram in a new tab / app
+        window.open(creatorLink, "_blank", "noopener,noreferrer");
+
+        // Start automatic background checks so user doesn't have to click anything
+        setAutoChecking(true);
+    };
+
+    useEffect(() => {
+        if (!autoChecking) return;
+
+        let cancelled = false;
+
+        const loop = async () => {
+            if (cancelled) return;
+            await checkProjectsAuto();
+            if (!cancelled) {
+                setTimeout(loop, 4000);
+            }
+        };
+
+        // start the polling loop
+        loop();
+
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [autoChecking]);
+
     return (
-        <AppLayout title="Add Channel">
-            <div className="max-w-xl mx-auto bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-                <h1 className="text-2xl font-semibold mb-2">
+        <AppLayout title="Connect your private channel">
+            <div className="max-w-2xl mx-auto">
+                <h1 className="text-2xl font-semibold text-slate-900 mb-4">
                     Connect your private channel
                 </h1>
-                <p className="text-sm text-slate-600 mb-6">
-                    We will use Telegram bot to securely connect your private channel.
-                    You don&apos;t need @username — just add the bot to your channel.
+                <p className="text-slate-600 mb-6">
+                    We&apos;ll use our Telegram bot to securely connect your private
+                    channel. You don&apos;t need a public @username — just add the bot
+                    as an admin to your channel.
                 </p>
 
-                <ol className="text-sm text-slate-700 space-y-3 mb-6 list-decimal list-inside">
-                    <li>
-                        Click the button below to open{" "}
-                        <span className="font-medium">@{TELEGRAM_BOT_USERNAME}</span> in
-                        Telegram.
-                    </li>
-                    <li>
-                        In Telegram, follow the instructions:
-                        <br />
-                        <span className="text-slate-600">
-                            – add the bot as an admin to your private channel <br />
-                            – forward any message from that channel to the bot
-                        </span>
-                    </li>
-                    <li>
-                        Come back here and press{" "}
-                        <span className="font-medium">“Check connection”</span>.
-                    </li>
-                </ol>
+                <div className="bg-white shadow-sm rounded-2xl border border-slate-200 p-6 space-y-6">
+                    <div>
+                        <h2 className="text-sm font-semibold text-slate-800 mb-2">
+                            How it works
+                        </h2>
+                        <ol className="list-decimal list-inside text-sm text-slate-600 space-y-1">
+                            <li>
+                                Click the button below to open{" "}
+                                <span className="font-mono">@{TELEGRAM_BOT_USERNAME}</span> in
+                                Telegram.
+                            </li>
+                            <li>
+                                In Telegram, follow the bot&apos;s instructions to connect
+                                your private channel.
+                            </li>
+                            <li>
+                                Keep this page open. We&apos;ll automatically detect your new
+                                channel and redirect you once it&apos;s connected. You can
+                                also press{" "}
+                                <span className="font-medium">“Check connection”</span>{" "}
+                                manually at any time.
+                            </li>
+                        </ol>
+                    </div>
 
-                <div className="space-y-4">
-                    <a
-                        href={creatorLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="block w-full text-center bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700"
-                    >
-                        Open Telegram and connect channel
-                    </a>
+                    <div className="space-y-4">
+                        <button
+                            type="button"
+                            onClick={handleOpenTelegram}
+                            className="block w-full text-center bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors"
+                        >
+                            Open Telegram and connect channel
+                        </button>
 
-                    <button
-                        onClick={handleCheck}
-                        className="w-full border border-slate-300 text-slate-800 py-3 rounded-xl text-sm hover:bg-slate-50"
-                        disabled={checking}
-                    >
-                        {checking ? "Checking..." : "I have added the bot, check connection"}
-                    </button>
+                        <button
+                            type="button"
+                            onClick={handleCheckManual}
+                            disabled={checking}
+                            className={`block w-full text-center border border-slate-300 py-3 rounded-xl font-medium ${checking
+                                    ? "bg-slate-50 text-slate-400 cursor-wait"
+                                    : "bg-white text-slate-700 hover:bg-slate-50"
+                                }`}
+                        >
+                            {checking
+                                ? "Checking..."
+                                : "I have added the bot, check connection"}
+                        </button>
 
-                    {projectsCount !== null && (
-                        <p className="text-xs text-slate-500">
-                            Found <span className="font-semibold">{projectsCount}</span>{" "}
-                            project(s) linked to your account.
-                        </p>
-                    )}
+                        {projectsCount !== null && (
+                            <p className="text-xs text-slate-500">
+                                Found{" "}
+                                <span className="font-semibold">{projectsCount}</span>{" "}
+                                project(s) linked to your account.
+                            </p>
+                        )}
+                    </div>
                 </div>
             </div>
         </AppLayout>

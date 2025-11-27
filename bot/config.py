@@ -1,9 +1,10 @@
-from pydantic_settings import BaseSettings
+﻿from pydantic_settings import BaseSettings
 
 
 class BotSettings(BaseSettings):
     BOT_TOKEN: str = "8350395273:AAEFuqUZi7Gpaq1MCzM2Cn3HbmguI37lECg"
     BACKEND_URL: str = "https://subs-saas.onrender.com"
+    FRONTEND_URL: str = "https://fanstero.netlify.app"   # ← добавили !!!
     DEFAULT_LANGUAGE: str = "en"
 
     class Config:

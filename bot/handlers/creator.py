@@ -1,96 +1,147 @@
 ﻿import aiohttp
 from aiogram import Router, F
-from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.filters import CommandStart
+from aiogram.types import (
+    Message,
+    ChatMemberUpdated,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
+from aiogram.filters.command import CommandObject
 
 from config import settings
 
 router = Router()
 
-
-@router.message(Command("creator"))
-async def creator_start(message: Message):
+# =========================================================
+# 1) START with deep-link: /start connect_<code>
+# =========================================================
+@router.message(CommandStart(deep_link=True))
+async def on_start_deeplink(message: Message, command: CommandObject):
     """
-    Creator onboarding (register creator in backend).
+    User opens the bot via:
+    https://t.me/<bot>?start=connect_<connection_code>
+
+    We detect the code and show a simple, clean onboarding message.
     """
 
-    # Register / update creator in backend
-    payload = {
-        "telegram_id": message.from_user.id,
-        "name": message.from_user.full_name,
-        "username": message.from_user.username,
-        "language": "en",
-    }
-
-    async with aiohttp.ClientSession() as session:
-        await session.post(
-            f"{settings.BACKEND_URL}/api/v1/users/",
-            json=payload,
+    payload = command.args  # aiogram 3 way
+    if not payload or not payload.startswith("connect_"):
+        # fallback: normal /start
+        return await message.answer(
+            "Welcome! 👋\n\n"
+            "Use this bot to connect your private Telegram channel.\n"
+            "Open the website to continue."
         )
 
+    connection_code = payload.replace("connect_", "").strip()
+
+    # Save code in FSM or in-memory dict? Simpler: store in user state.
+    # But better: send the code back later manually on my_chat_member.
+
+    # Store it temporarily inside aiogram user_data:
+    message.bot['pending_code'] = message.bot.get('pending_code', {})
+    message.bot['pending_code'][message.from_user.id] = connection_code
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="➕ Add bot to your channel",
+                    url=f"https://t.me/{(await message.bot.get_me()).username}?start",
+                )
+            ]
+        ]
+    )
+
     await message.answer(
-        "👋 Welcome, creator!\n\n"
-        "To connect your private Telegram channel:\n"
-        "1️⃣ Add this bot as an **admin** to your channel.\n"
-        "2️⃣ Forward **any message** from that channel to this chat.\n\n"
-        "I will automatically detect the channel, save it in your dashboard, "
-        "and generate a subscription link for your followers 😉"
+        "🔗 Let's connect your private channel!\n\n"
+        "Just two quick steps:\n"
+        "1️⃣ Add this bot as **admin** to your private channel.\n"
+        "2️⃣ That's it — I will detect it automatically.\n\n"
+        "Choose your channel using the button below:",
+        reply_markup=keyboard,
     )
 
 
-@router.message(F.forward_from_chat)
-async def connect_channel_from_forward(message: Message):
+# =========================================================
+# 2) ON BOT ADDED AS ADMIN → HANDLE my_chat_member UPDATE
+# =========================================================
+@router.my_chat_member()
+async def on_bot_added_to_channel(update: ChatMemberUpdated):
     """
-    Creator forwards a message from a channel → we register the channel as a Project.
+    Telegram calls this whenever bot gets added/removed from chats.
+
+    When bot is added to a channel, we:
+    - extract user_id (who added us)
+    - extract channel_id
+    - extract channel title
+    - send POST /projects/connect-channel to backend
     """
 
-    # Only allow forwarded messages from channels
-    if not message.forward_from_chat or message.forward_from_chat.type != "channel":
+    chat = update.chat
+
+    # Only care about channels
+    if chat.type != "channel":
         return
 
-    channel = message.forward_from_chat
+    new_status = update.new_chat_member.status
+    if new_status not in ("administrator", "member"):
+        return
 
-    telegram_channel_id = channel.id
-    title = channel.title
-    username = channel.username  # may be None for private channels
+    user = update.from_user  # the person who added the bot
 
+    bot = update.bot
+
+    # Retrieve saved connection_code
+    pending = bot.get("pending_code", {})
+    connection_code = pending.get(user.id)
+
+    if not connection_code:
+        # No active connection session — ignore
+        return
+
+    # Prepare payload for backend
     payload = {
-        "telegram_channel_id": telegram_channel_id,
-        "title": title,
-        "username": username,
-        "active": True,
-        "owner_telegram_id": message.from_user.id,
+        "connection_code": connection_code,
+        "telegram_channel_id": chat.id,
+        "channel_title": chat.title,
     }
 
-    # Create project in backend
+    # Call backend
     async with aiohttp.ClientSession() as session:
         async with session.post(
-            f"{settings.BACKEND_URL}/api/v1/projects/",
+            f"{settings.BACKEND_URL}/api/v1/projects/connect-channel",
             json=payload,
         ) as resp:
             if resp.status != 200:
-                text = await resp.text()
-                await message.answer(
-                    "❌ Failed to save this channel.\n"
-                    "Please make sure you are the channel owner/admin and try again.\n\n"
-                    f"Technical error: {resp.status} {text}"
+                error = await resp.text()
+                await bot.send_message(
+                    user.id,
+                    "❌ Failed to connect your channel.\n"
+                    "Please try again.\n\n"
+                    f"Technical error:\n{resp.status}\n{error}"
                 )
                 return
 
-            project = await resp.json()
+            await resp.json()  # We don't actually need the response
 
-    # Bot username for subscription link
-    me = await message.bot.get_me()
-    bot_username = me.username
+    # Remove the pending code (session is complete)
+    pending.pop(user.id, None)
 
-    project_id = project["id"]
-    link = f"https://t.me/{bot_username}?start=project_{project_id}"
+    # Send success message with button to go back to website
+    dashboard_url = settings.FRONTEND_URL + "/app/channels"
 
-    await message.answer(
-        "✅ Channel successfully connected!\n\n"
-        f"• Title: <b>{title}</b>\n"
-        f"• ID: <code>{telegram_channel_id}</code>\n\n"
-        "Here is the personal subscription link you can share:\n"
-        f"{link}",
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Back to Dashboard", url=dashboard_url)]
+        ]
+    )
+
+    await bot.send_message(
+        user.id,
+        f"✅ Your channel **{chat.title}** is now connected!\n\n"
+        "You can now return to the dashboard and set up your subscription plans.",
+        reply_markup=keyboard,
         parse_mode="HTML",
     )
