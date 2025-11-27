@@ -34,7 +34,6 @@ export default function AddChannelPage() {
             body: JSON.stringify({
                 title: "New Private Channel",
                 active: true,
-                owner_telegram_id: JSON.parse(atob(token.split(".")[1])).sub
             }),
         });
 

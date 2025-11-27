@@ -1,10 +1,11 @@
 ﻿from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 import requests
 import secrets
 from pydantic import BaseModel
+from jose import jwt, JWTError
 
 from app.core.deps import get_db
 from app.core.config import settings
@@ -13,6 +14,8 @@ from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectRead
 
 router = APIRouter()
+
+ALGORITHM = "HS256"  # тот же, что использует твой бекенд при создании JWT
 
 
 # ==== Дополнительная схема для привязки канала через бота ====
@@ -74,18 +77,37 @@ def check_bot_status(project_id: int, db: Session = Depends(get_db)):
 # ==== STEP 1: создать проект (без канала) ====
 
 @router.post("/", response_model=ProjectRead)
-def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
+def create_project(
+    payload: ProjectCreate,
+    authorization: str = Header(None),
+    db: Session = Depends(get_db),
+):
     """
-    Step 1: create a project (paid channel) and link it to the owner
-    via owner_telegram_id.
+    Step 1: create a project (paid channel) and link it to the owner.
 
-    While the channel is not attached, telegram_channel_id = NULL.
-    In settings we store connection_code and status.
+    ❗ Owner is detected automatically from JWT token in Authorization header.
+    We no longer rely on payload.owner_telegram_id.
     """
-    # Find author by telegram_id
-    user = db.query(User).filter(User.telegram_id == payload.owner_telegram_id).first()
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    token = authorization.split(" ", 1)[1]
+
+    # Decode JWT and extract user id from "sub"
+    try:
+        payload_jwt = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        sub = payload_jwt.get("sub")
+        if sub is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        user_id = int(sub)
+    except (JWTError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    # Find user by internal id
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=400, detail="User with this telegram_id not found")
+        raise HTTPException(status_code=404, detail="User not found")
 
     # Generate short connection code that will be used in bot deep link
     connection_code = secrets.token_hex(3)  # e.g. "a3f1c2"
