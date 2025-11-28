@@ -1,5 +1,5 @@
-import AppLayout from "@/components/AppLayout";
-import { useEffect, useState } from "react";
+﻿import AppLayout from "@/components/AppLayout";
+import { useEffect, useMemo, useState } from "react";
 
 const API_BASE = "https://subs-saas.onrender.com/api/v1";
 const MIN_PAYOUT_EUR = 20;
@@ -9,6 +9,14 @@ type Summary = {
     payout_method: string | null;
     payout_details: string | null;
 };
+
+const PAYOUT_METHOD_OPTIONS = [
+    "SEPA IBAN",
+    "Revolut",
+    "Wise",
+    "USDT TRC20",
+    "Other",
+];
 
 export default function SettingsPage() {
     const [loading, setLoading] = useState(true);
@@ -60,6 +68,23 @@ export default function SettingsPage() {
         loadSummary();
     }, []);
 
+    const payoutDetailsPlaceholder = useMemo(() => {
+        switch (payoutMethod) {
+            case "SEPA IBAN":
+                return "Example: IBAN LT12 3456 ....";
+            case "Revolut":
+                return "Example: Revolut @username or phone number";
+            case "Wise":
+                return "Example: Wise account email or bank details";
+            case "USDT TRC20":
+                return "Example: USDT TRC20 wallet address";
+            case "Other":
+                return "Describe how we should pay you and add all necessary details.";
+            default:
+                return "Example: IBAN LT12 3456 ..., or Revolut @username, or USDT TRC20 wallet...";
+        }
+    }, [payoutMethod]);
+
     const handleSave = async () => {
         if (typeof window === "undefined") return;
 
@@ -70,7 +95,7 @@ export default function SettingsPage() {
         }
 
         if (!payoutMethod.trim() || !payoutDetails.trim()) {
-            alert("Please fill payout method and details.");
+            alert("Please select payout method and fill payout details.");
             return;
         }
 
@@ -217,9 +242,8 @@ export default function SettingsPage() {
                             Payout details
                         </h2>
                         <p className="text-xs text-slate-500 mb-3">
-                            Add how we should pay you: IBAN (SEPA), Revolut, Wise or crypto
-                            address. We will use these details when processing your payout
-                            requests.
+                            Choose how we should pay you and add the details. We will use
+                            this information when processing your payout requests.
                         </p>
 
                         <div className="space-y-3">
@@ -227,13 +251,23 @@ export default function SettingsPage() {
                                 <label className="block text-xs font-medium text-slate-700 mb-1">
                                     Payout method
                                 </label>
-                                <input
-                                    type="text"
+                                <select
                                     value={payoutMethod}
                                     onChange={(e) => setPayoutMethod(e.target.value)}
-                                    placeholder="Example: SEPA IBAN, Revolut, Wise, USDT TRC20"
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                />
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                                >
+                                    <option value="">Select payout method</option>
+                                    {/* если в БД лежит свой текст — покажем его как отдельный вариант */}
+                                    {payoutMethod &&
+                                        !PAYOUT_METHOD_OPTIONS.includes(payoutMethod) && (
+                                            <option value={payoutMethod}>{payoutMethod}</option>
+                                        )}
+                                    {PAYOUT_METHOD_OPTIONS.map((m) => (
+                                        <option key={m} value={m}>
+                                            {m}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
                             <div>
                                 <label className="block text-xs font-medium text-slate-700 mb-1">
@@ -242,7 +276,7 @@ export default function SettingsPage() {
                                 <textarea
                                     value={payoutDetails}
                                     onChange={(e) => setPayoutDetails(e.target.value)}
-                                    placeholder="Example: IBAN LT12 3456 ..., or Revolut @username, or USDT TRC20 wallet..."
+                                    placeholder={payoutDetailsPlaceholder}
                                     className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm min-h-[90px] focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                 />
                             </div>

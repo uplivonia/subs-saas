@@ -489,3 +489,42 @@ def get_creator_overview(
         "active_subscribers": int(active_subscribers),
         "total_revenue": float(total_revenue),
     }
+@router.get("/creator/recent-payments")
+def get_creator_recent_payments(
+    authorization: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Последние оплаченные платежи для дашборда креатора.
+    """
+    user = get_current_user_from_token(authorization, db)
+
+    rows = (
+        db.query(
+            Payment.id,
+            Payment.amount,
+            Payment.currency,
+            Payment.created_at,
+            Project.title.label("project_title"),
+        )
+        .join(Project, Payment.project_id == Project.id)
+        .filter(
+            Project.user_id == user.id,
+            Payment.status == "paid",
+        )
+        .order_by(Payment.created_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    result = []
+    for r in rows:
+        result.append({
+            "id": r.id,
+            "amount": float(r.amount),
+            "currency": r.currency,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "project_title": r.project_title,
+        })
+
+    return result

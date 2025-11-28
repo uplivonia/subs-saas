@@ -17,10 +17,19 @@ type Project = {
     telegram_username?: string | null;
 };
 
+type RecentPayment = {
+    id: number;
+    amount: number;
+    currency: string;
+    created_at: string | null;
+    project_title: string | null;
+};
+
 export default function Dashboard() {
     const [loading, setLoading] = useState(true);
     const [projects, setProjects] = useState<Project[]>([]);
     const [overview, setOverview] = useState<OverviewResponse | null>(null);
+    const [recentPayments, setRecentPayments] = useState<RecentPayment[]>([]);
     const [error, setError] = useState<string | null>(null);
 
     const loadData = async () => {
@@ -34,7 +43,7 @@ export default function Dashboard() {
         }
 
         try {
-            const [projectsRes, overviewRes] = await Promise.all([
+            const [projectsRes, overviewRes, paymentsRes] = await Promise.all([
                 fetch(`${API_BASE}/projects/`, {
                     headers: {
                         "Content-Type": "application/json",
@@ -47,22 +56,38 @@ export default function Dashboard() {
                         Authorization: `Bearer ${token}`,
                     },
                 }),
+                fetch(`${API_BASE}/payments/creator/recent-payments`, {
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
+                }),
             ]);
 
-            if (!projectsRes.ok) {
-                console.error("Failed to load projects:", await projectsRes.text());
-            } else {
+            if (projectsRes.ok) {
                 const projectsData = await projectsRes.json();
                 if (Array.isArray(projectsData)) {
                     setProjects(projectsData as Project[]);
                 }
+            } else {
+                console.error("Failed to load projects:", await projectsRes.text());
             }
 
-            if (!overviewRes.ok) {
-                console.error("Failed to load overview:", await overviewRes.text());
-            } else {
+            if (overviewRes.ok) {
                 const ov = (await overviewRes.json()) as OverviewResponse;
                 setOverview(ov);
+            } else {
+                console.error("Failed to load overview:", await overviewRes.text());
+            }
+
+            if (paymentsRes.ok) {
+                const paymentsData = (await paymentsRes.json()) as RecentPayment[];
+                setRecentPayments(paymentsData);
+            } else {
+                console.error(
+                    "Failed to load recent payments:",
+                    await paymentsRes.text()
+                );
             }
         } catch (e) {
             console.error("Error while loading dashboard data:", e);
@@ -87,6 +112,12 @@ export default function Dashboard() {
         { label: "Active subscribers", value: String(activeSubscribers) },
         { label: "Connected channels", value: String(connectedChannels) },
     ];
+
+    const formatDate = (iso: string | null) => {
+        if (!iso) return "";
+        const d = new Date(iso);
+        return d.toLocaleDateString() + " " + d.toLocaleTimeString().slice(0, 5);
+    };
 
     return (
         <AppLayout title="Dashboard">
@@ -121,7 +152,7 @@ export default function Dashboard() {
                     </p>
                 </section>
 
-                {/* Channels + payments preview */}
+                {/* Channels + payments */}
                 <section className="grid gap-6 md:grid-cols-2">
                     <div className="bg-white border border-slate-200 rounded-xl p-4">
                         <div className="flex items-center justify-between mb-3">
@@ -186,12 +217,36 @@ export default function Dashboard() {
                             <h2 className="text-sm font-medium text-slate-800">
                                 Recent payments
                             </h2>
-                            <span className="text-xs text-slate-400">Coming soon</span>
                         </div>
-                        <p className="text-sm text-slate-500">
-                            Once you connect a channel and start selling subscriptions, your
-                            latest payments will appear here.
-                        </p>
+
+                        {loading ? (
+                            <p className="text-sm text-slate-500">Loading payments...</p>
+                        ) : recentPayments.length === 0 ? (
+                            <p className="text-sm text-slate-500">
+                                Once you get your first paid subscription, it will appear here.
+                            </p>
+                        ) : (
+                            <ul className="space-y-2">
+                                {recentPayments.slice(0, 5).map((p) => (
+                                    <li
+                                        key={p.id}
+                                        className="flex items-center justify-between text-sm border border-slate-100 rounded-lg px-3 py-2"
+                                    >
+                                        <div className="flex flex-col">
+                                            <span className="font-medium">
+                                                {p.amount.toFixed(2)} {p.currency}
+                                            </span>
+                                            <span className="text-xs text-slate-500">
+                                                {p.project_title || "Channel"}
+                                            </span>
+                                        </div>
+                                        <span className="text-xs text-slate-400">
+                                            {formatDate(p.created_at)}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </div>
                 </section>
             </div>
