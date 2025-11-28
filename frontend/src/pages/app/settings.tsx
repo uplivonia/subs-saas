@@ -124,7 +124,9 @@ export default function SettingsPage() {
         }
 
         if (!payoutMethod.trim() || !payoutDetails.trim()) {
-            alert("Please set payout method and details before requesting payout.");
+            alert(
+                "Please set payout method and details before requesting payout."
+            );
             return;
         }
 
@@ -186,7 +188,7 @@ export default function SettingsPage() {
                             </p>
                         ) : (
                             <p className="text-3xl font-semibold text-slate-900">
-                                € {balance.toFixed(2)}
+                                EUR {balance.toFixed(2)}
                             </p>
                         )}
                         <p className="text-xs text-slate-500 mt-1">
@@ -224,9 +226,7 @@ export default function SettingsPage() {
                                 </label>
                                 <textarea
                                     value={payoutDetails}
-                                    onChange={(e) =>
-                                        setPayoutDetails(e.target.value)
-                                    }
+                                    onChange={(e) => setPayoutDetails(e.target.value)}
                                     placeholder="Example: IBAN LT12 3456 ..., or Revolut @username, or USDT TRC20 wallet..."
                                     className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm min-h-[90px] focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                 />
