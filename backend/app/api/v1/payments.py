@@ -1,6 +1,7 @@
 ﻿from fastapi import APIRouter, HTTPException, Depends, Request, Header
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from app.core.stripe_config import create_checkout_session
 from app.core.config import settings
@@ -10,6 +11,7 @@ from app.models.end_user import EndUser
 from app.models.subscription import Subscription
 from app.models.plan import SubscriptionPlan
 from app.models.user import User
+from app.models.project import Project
 
 import stripe
 from jose import jwt, JWTError
@@ -135,11 +137,17 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                 status="paid",
             )
             db.add(payment)
+            db.commit()
+            db.refresh(payment)
         else:
-            payment.status = "paid"
+            # если уже "paid" — значит вебхук повторился, ничего не делаем
+            if payment.status == "paid":
+                print(f"[WEBHOOK] ⚠ Payment {payment.id} already processed, skipping.")
+                return {"received": True}
 
-        db.commit()
-        db.refresh(payment)
+            payment.status = "paid"
+            db.commit()
+            db.refresh(payment)
 
         # --- 2. СОЗДАЁМ EndUser, если нет ---
         end_user = (
@@ -167,8 +175,29 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             print(f"[WEBHOOK] ❌ Plan not found for payment {payment.id}")
             return {"received": True}
 
-        # --- 4. СОЗДАЁМ ПОДПИСКУ ---
         now = datetime.utcnow()
+
+        # Проверяем, нет ли уже активной подписки этого юзера на этот проект/план
+        existing_sub = (
+            db.query(Subscription)
+            .filter(
+                Subscription.end_user_id == end_user.id,
+                Subscription.project_id == plan.project_id,
+                Subscription.plan_id == plan.id,
+                Subscription.status == "active",
+                Subscription.end_at >= now,
+            )
+            .first()
+        )
+
+        if existing_sub:
+            print(
+                f"[WEBHOOK] ⚠ Subscription already active "
+                f"(id={existing_sub.id}) for user {end_user.id}, skipping duplicate."
+            )
+            return {"received": True}
+
+        # --- 4. СОЗДАЁМ ПОДПИСКУ ---
         duration = plan.duration_days or 30
         end_at = now + timedelta(days=duration)
 
@@ -181,12 +210,47 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             status="active",
             auto_renew=False,
         )
-
         db.add(subscription)
+
+        # --- 5. НАЧИСЛЯЕМ ДЕНЬГИ АВТОРУ ПРОЕКТА ---
+        project = (
+            db.query(Project)
+            .filter(Project.id == plan.project_id)
+            .first()
+        )
+
+        if not project:
+            print(f"[WEBHOOK] ❌ Project not found for plan {plan.id}")
+            db.commit()
+            return {"received": True}
+
+        creator = (
+            db.query(User)
+            .filter(User.id == project.user_id)
+            .first()
+        )
+
+        if not creator:
+            print(f"[WEBHOOK] ❌ Creator not found for project {project.id}")
+            db.commit()
+            return {"received": True}
+
+        # Сколько отдаём автору? например 85% от суммы
+        platform_fee_pct = Decimal("0.15")
+        gross_amount = Decimal(str(payment.amount))  # например 9.99
+        creator_amount = gross_amount * (Decimal("1.0") - platform_fee_pct)
+
+        # в центы
+        creator_cents = int(creator_amount * 100)
+
+        creator.balance_cents = (creator.balance_cents or 0) + creator_cents
+
         db.commit()
 
         print(
-            f"[WEBHOOK] ✅ Subscription created: {subscription.id} for user {payment.telegram_id}"
+            f"[WEBHOOK] ✅ Subscription {subscription.id} created for user {payment.telegram_id}; "
+            f"credited {creator_amount} to creator {creator.id}. "
+            f"New balance: {creator.balance_cents / 100:.2f}."
         )
 
     return {"received": True}
@@ -203,72 +267,17 @@ async def stripe_cancel():
 
 
 # =========================================================
-# STRIPE CONNECT: CREATOR PAYOUT ACCOUNT
+# STRIPE CONNECT: CREATOR PAYOUT ACCOUNT (ПОКА НЕ ИСПОЛЬЗУЕМ)
 # =========================================================
-
+# Эти endpoints можно оставить на будущее, но на фронте их НЕ вызываем.
+# Текущая логика — один общий бизнес-аккаунт Stripe, а авторам идёт
+# внутренний баланс + ручные выплаты.
 @router.post("/connect/link")
 async def create_connect_link(
     authorization: str = Header(None),
     db: Session = Depends(get_db),
 ):
-    # вот тут уже можно печатать
-    print(">>> USING STRIPE KEY:", settings.STRIPE_SECRET_KEY[:10])
-
-    """
-    Creates or reuses a Stripe Express account for the current user
-    and returns an onboarding link.
-    """
-    user = get_current_user_from_token(authorization, db)
-
-    if not settings.STRIPE_SECRET_KEY:
-        raise HTTPException(status_code=500, detail="STRIPE_SECRET_KEY is not set")
-
-    stripe.api_key = settings.STRIPE_SECRET_KEY
-
-    # 1) Создаём Stripe Account, если его ещё нет
-    if not user.stripe_account_id:
-        try:
-            account = stripe.Account.create(
-                type="express",
-            )
-        except stripe.error.InvalidRequestError as e:
-            # Это как раз тот случай "You can only create new accounts if..."
-            print("Stripe Connect error while creating account:", e)
-            raise HTTPException(
-                status_code=400,
-                detail="Stripe Connect is not enabled or not fully configured for this Stripe account. "
-                       "Please double-check Connect settings and API key mode (test/live)."
-            )
-        except Exception as e:
-            print("Stripe generic error while creating account:", e)
-            raise HTTPException(
-                status_code=400,
-                detail=f"Stripe error while creating account: {str(e)}"
-            )
-
-        user.stripe_account_id = account.id
-        db.commit()
-        db.refresh(user)
-
-    frontend_url = getattr(settings, "FRONTEND_URL", None) or "https://fanstero.netlify.app"
-    frontend_url = frontend_url.rstrip("/")
-
-    try:
-        # 2) Создаём Account Link для онбординга
-        account_link = stripe.AccountLink.create(
-            account=user.stripe_account_id,
-            refresh_url=f"{frontend_url}/app/settings",
-            return_url=f"{frontend_url}/app/settings",
-            type="account_onboarding",
-        )
-    except Exception as e:
-        print("Stripe error while creating account link:", e)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Stripe error while creating account link: {str(e)}"
-        )
-
-    return {"url": account_link["url"]}
+    raise HTTPException(status_code=400, detail="Stripe Connect is not used in this version.")
 
 
 @router.get("/connect/status")
@@ -276,29 +285,8 @@ async def connect_status(
     authorization: str = Header(None),
     db: Session = Depends(get_db),
 ):
-    """
-    Returns whether the current user has a connected Stripe account.
-    Also, if we have an account but not onboarded yet,
-    we check Stripe's `details_submitted` and update flag.
-    """
-    user = get_current_user_from_token(authorization, db)
-
-    connected = bool(user.stripe_account_id and user.stripe_onboarded)
-
-    # Попробуем обновить stripe_onboarded, если аккаунт есть, но флаг ещё False
-    if user.stripe_account_id and not user.stripe_onboarded and settings.STRIPE_SECRET_KEY:
-        try:
-            stripe.api_key = settings.STRIPE_SECRET_KEY
-            account = stripe.Account.retrieve(user.stripe_account_id)
-            if account.get("details_submitted", False):
-                user.stripe_onboarded = True
-                db.commit()
-                connected = True
-        except Exception as e:
-            print("Stripe connect_status error:", e)
-
     return {
-        "connected": connected,
-        "stripe_account_id": user.stripe_account_id,
-        "stripe_onboarded": user.stripe_onboarded,
+        "connected": False,
+        "stripe_account_id": None,
+        "stripe_onboarded": False,
     }
