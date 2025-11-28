@@ -2,6 +2,7 @@ import AppLayout from "@/components/AppLayout";
 import { useEffect, useState } from "react";
 
 const API_BASE = "https://subs-saas.onrender.com/api/v1";
+const MIN_PAYOUT_EUR = 20;
 
 type Summary = {
     balance: number;
@@ -130,7 +131,13 @@ export default function SettingsPage() {
             return;
         }
 
-        if (!confirm("Request payout of your full available balance?")) {
+        if (
+            !confirm(
+                `Request payout of your full available balance (${summary.balance.toFixed(
+                    2
+                )} EUR)?`
+            )
+        ) {
             return;
         }
 
@@ -170,6 +177,13 @@ export default function SettingsPage() {
 
     const balance = summary?.balance ?? 0;
 
+    const canRequestPayout =
+        !loading &&
+        !requesting &&
+        balance >= MIN_PAYOUT_EUR &&
+        payoutMethod.trim().length > 0 &&
+        payoutDetails.trim().length > 0;
+
     return (
         <AppLayout title="Settings">
             <div className="max-w-2xl mx-auto">
@@ -183,17 +197,18 @@ export default function SettingsPage() {
                             Creator balance
                         </h2>
                         {loading ? (
-                            <p className="text-sm text-slate-500">
-                                Loading your balance...
-                            </p>
+                            <p className="text-sm text-slate-500">Loading your balance...</p>
                         ) : (
                             <p className="text-3xl font-semibold text-slate-900">
                                 EUR {balance.toFixed(2)}
                             </p>
                         )}
                         <p className="text-xs text-slate-500 mt-1">
-                            You receive 90% of each successful subscription payment.
-                            Our platform fee is 10%.
+                            You receive 90% of each successful subscription payment. Our
+                            platform fee is 10%.
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1">
+                            Minimum payout amount is {MIN_PAYOUT_EUR} EUR.
                         </p>
                     </div>
 
@@ -202,9 +217,9 @@ export default function SettingsPage() {
                             Payout details
                         </h2>
                         <p className="text-xs text-slate-500 mb-3">
-                            Add how we should pay you: IBAN (SEPA), Revolut, Wise or
-                            crypto address. We will use these details when processing
-                            your payout requests.
+                            Add how we should pay you: IBAN (SEPA), Revolut, Wise or crypto
+                            address. We will use these details when processing your payout
+                            requests.
                         </p>
 
                         <div className="space-y-3">
@@ -249,18 +264,21 @@ export default function SettingsPage() {
                             <button
                                 type="button"
                                 onClick={handleRequestPayout}
-                                disabled={requesting || loading || balance <= 0}
-                                className={`inline-flex items-center px-4 py-2 rounded-xl text-sm font-medium border ${requesting || loading || balance <= 0
+                                disabled={!canRequestPayout}
+                                className={`inline-flex items-center px-4 py-2 rounded-xl text-sm font-medium border ${!canRequestPayout
                                         ? "border-slate-200 text-slate-400 cursor-not-allowed"
                                         : "border-emerald-500 text-emerald-600 hover:bg-emerald-50"
                                     }`}
                             >
-                                {requesting ? "Requesting..." : "Request payout"}
+                                {requesting
+                                    ? "Requesting..."
+                                    : balance < MIN_PAYOUT_EUR
+                                        ? `Min. ${MIN_PAYOUT_EUR} EUR to request`
+                                        : "Request payout"}
                             </button>
                         </div>
                         <p className="text-[11px] text-slate-400 mt-2">
-                            Minimum payout amount is 20 EUR. We usually process payout
-                            requests within a few days.
+                            We usually process payout requests within a few days.
                         </p>
                     </div>
                 </div>
