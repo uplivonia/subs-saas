@@ -4,27 +4,19 @@ import Link from "next/link";
 import { useEffect, useState, useMemo } from "react";
 
 const API_BASE = "https://subs-saas.onrender.com/api/v1";
-// если переименуешь бота – поменяй здесь:
 const TELEGRAM_BOT_USERNAME = "oneclicksub_bot";
 
 type Project = {
     id: number;
-    user_id: number;
-    title: string | null;
-    username: string | null;
-    telegram_channel_id: number | null;
-    active: boolean;
-    settings?: {
-        status?: string;
-        connection_code?: string;
-    } | null;
+    title?: string | null;
+    username?: string | null;
 };
 
 type Plan = {
     id: number;
     project_id: number;
     name: string;
-    price: number;
+    price: number | string;
     currency: string;
     duration_days: number;
     active: boolean;
@@ -40,63 +32,35 @@ export default function ChannelDetailsPage() {
     const [creating, setCreating] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // поля для нового плана
     const [planName, setPlanName] = useState("Monthly access");
     const [planPrice, setPlanPrice] = useState("9.99");
     const [planDuration, setPlanDuration] = useState("30");
     const [planCurrency, setPlanCurrency] = useState("EUR");
 
-    // готовая подписочная ссылка
     const subscriptionLink = useMemo(() => {
         if (!project) return "";
         return `https://t.me/${TELEGRAM_BOT_USERNAME}?start=project_${project.id}`;
     }, [project]);
 
     const loadData = async (projectId: number) => {
-        if (typeof window === "undefined") return;
-
         const token = localStorage.getItem("token");
-        if (!token) {
-            setError("You are not logged in.");
-            setLoading(false);
-            return;
-        }
+        if (!token) return;
 
         try {
-            const [projRes, plansRes] = await Promise.all([
+            const [p1, p2] = await Promise.all([
                 fetch(`${API_BASE}/projects/${projectId}`, {
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${token}`,
-                    },
+                    headers: { Authorization: `Bearer ${token}` },
                 }),
                 fetch(`${API_BASE}/plans/project/${projectId}`, {
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${token}`,
-                    },
+                    headers: { Authorization: `Bearer ${token}` },
                 }),
             ]);
 
-            if (!projRes.ok) {
-                const text = await projRes.text();
-                console.error("Failed to load project:", text);
-                setError("Failed to load channel data.");
-            } else {
-                const projData: Project = await projRes.json();
-                setProject(projData);
-            }
-
-            if (!plansRes.ok) {
-                const text = await plansRes.text();
-                console.error("Failed to load plans:", text);
-            } else {
-                const plansData: Plan[] = await plansRes.json();
-                setPlans(plansData);
-            }
-        } catch (e) {
-            console.error("Error loading channel data:", e);
-            setError("Failed to load channel data.");
+            if (p1.ok) setProject(await p1.json());
+            if (p2.ok) setPlans(await p2.json());
+        } catch (err) {
+            console.error("Load error:", err);
+            setError("Failed to load channel data");
         } finally {
             setLoading(false);
         }
@@ -104,55 +68,33 @@ export default function ChannelDetailsPage() {
 
     useEffect(() => {
         if (!id) return;
-        const numericId = parseInt(id as string, 10);
-        if (Number.isNaN(numericId)) {
-            setError("Invalid channel id.");
-            setLoading(false);
-            return;
-        }
-        loadData(numericId);
+        const n = parseInt(id as string, 10);
+        if (!isNaN(n)) loadData(n);
     }, [id]);
 
+    const safePrice = (price: number | string) => {
+        const num = typeof price === "number" ? price : Number(price);
+        return isNaN(num) ? "0.00" : num.toFixed(2);
+    };
+
     const handleCopyLink = async () => {
-        if (!subscriptionLink) return;
         try {
             await navigator.clipboard.writeText(subscriptionLink);
-            alert("Subscription link copied to clipboard.");
-        } catch (e) {
-            console.error("Failed to copy link:", e);
-            alert("Could not copy link. Please copy it manually.");
+            alert("Link copied!");
+        } catch {
+            alert("Failed to copy");
         }
     };
 
-    const handleCreatePlan = async (e: React.FormEvent) => {
+    const handleCreatePlan = async (e: any) => {
         e.preventDefault();
         if (!project) return;
 
-        if (!planName.trim()) {
-            alert("Please enter plan name.");
-            return;
-        }
-
-        const priceNum = Number(planPrice.replace(",", "."));
-        const durationNum = parseInt(planDuration, 10);
-
-        if (Number.isNaN(priceNum) || priceNum <= 0) {
-            alert("Please enter valid price.");
-            return;
-        }
-        if (Number.isNaN(durationNum) || durationNum <= 0) {
-            alert("Please enter valid duration (days).");
-            return;
-        }
-
-        if (typeof window === "undefined") return;
         const token = localStorage.getItem("token");
-        if (!token) {
-            alert("Please log in.");
-            return;
-        }
+        if (!token) return;
 
         setCreating(true);
+
         try {
             const res = await fetch(`${API_BASE}/plans/`, {
                 method: "POST",
@@ -162,218 +104,169 @@ export default function ChannelDetailsPage() {
                 },
                 body: JSON.stringify({
                     project_id: project.id,
-                    name: planName.trim(),
-                    price: priceNum,
+                    name: planName,
+                    price: Number(planPrice),
+                    duration_days: Number(planDuration),
                     currency: planCurrency,
-                    duration_days: durationNum,
                     active: true,
                 }),
             });
 
-            const text = await res.text();
-
             if (!res.ok) {
-                console.error("Failed to create plan:", text);
-                try {
-                    const err = JSON.parse(text);
-                    alert(err.detail || "Could not create plan.");
-                } catch {
-                    alert("Could not create plan.");
-                }
-                return;
+                const msg = await res.text();
+                console.error(msg);
+                alert("Failed to create plan");
+            } else {
+                await loadData(project.id);
+                setPlanName("Monthly access");
+                setPlanPrice("9.99");
+                setPlanDuration("30");
             }
-
-            // успешно создали – обновляем список тарифов
-            await loadData(project.id);
-            setPlanName("Monthly access");
-            setPlanPrice("9.99");
-            setPlanDuration("30");
-        } catch (e) {
-            console.error("Network error while creating plan:", e);
-            alert("Network error. Try again.");
         } finally {
             setCreating(false);
         }
     };
 
-    const title =
-        project?.title ||
-        (project?.username ? `@${project.username}` : project ? `Channel #${project.id}` : "Channel");
+    if (loading)
+        return (
+            <AppLayout title="Channel">
+                <p className="text-sm text-slate-500">Loading...</p>
+            </AppLayout>
+        );
+
+    if (!project)
+        return (
+            <AppLayout title="Channel">
+                <p className="text-sm text-slate-500">Channel not found.</p>
+            </AppLayout>
+        );
 
     return (
         <AppLayout title="Channel details">
-            <div className="max-w-4xl mx-auto space-y-6">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <p className="text-xs text-slate-500 mb-1">
-                            <Link href="/app/channels" className="text-indigo-600">
-                                ← Back to channels
-                            </Link>
-                        </p>
-                        <h1 className="text-2xl font-semibold text-slate-900">{title}</h1>
-                        {project?.username && (
-                            <p className="text-xs text-slate-500 mt-1">
-                                Telegram: @{project.username}
-                            </p>
-                        )}
-                    </div>
+            <div className="max-w-3xl mx-auto space-y-8">
+                <div>
+                    <p className="text-xs mb-1">
+                        <Link href="/app/channels" className="text-indigo-600">
+                            ← Back
+                        </Link>
+                    </p>
+                    <h1 className="text-2xl font-semibold text-slate-900">
+                        {project.title || `Channel #${project.id}`}
+                    </h1>
+                    {project.username && (
+                        <p className="text-xs text-slate-500">@{project.username}</p>
+                    )}
                 </div>
 
-                {error && (
-                    <p className="text-sm text-red-500 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
-                        {error}
+                {/* Subscription Link */}
+                <section className="bg-white border rounded-xl p-4">
+                    <h2 className="text-sm font-semibold mb-1">Subscription link</h2>
+                    <p className="text-xs text-slate-500 mb-3">
+                        Share this link with your audience.
                     </p>
-                )}
 
-                {loading ? (
-                    <p className="text-sm text-slate-500">Loading channel data…</p>
-                ) : !project ? (
-                    <p className="text-sm text-slate-500">Channel not found.</p>
-                ) : (
-                    <>
-                        {/* Subscription link */}
-                        <section className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2">
-                            <h2 className="text-sm font-semibold text-slate-800 mb-1">
-                                Subscription link
-                            </h2>
-                            <p className="text-xs text-slate-500 mb-2">
-                                Share this link with your audience. They will open the bot and
-                                see your subscription plans for this channel.
-                            </p>
-                            <div className="flex flex-col sm:flex-row gap-3">
-                                <input
-                                    type="text"
-                                    readOnly
-                                    value={subscriptionLink}
-                                    className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-700 bg-slate-50"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={handleCopyLink}
-                                    className="inline-flex items-center justify-center px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                    <div className="flex gap-2 flex-col sm:flex-row">
+                        <input
+                            readOnly
+                            value={subscriptionLink}
+                            className="flex-1 border rounded-xl px-3 py-2 bg-slate-50 text-xs"
+                        />
+                        <button
+                            onClick={handleCopyLink}
+                            className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm"
+                        >
+                            Copy
+                        </button>
+                    </div>
+                </section>
+
+                {/* Plans */}
+                <section className="bg-white border rounded-xl p-4">
+                    <h2 className="text-sm font-semibold mb-3">Subscription plans</h2>
+
+                    {plans.length === 0 ? (
+                        <p className="text-sm text-slate-500 mb-3">
+                            No plans yet — create one below.
+                        </p>
+                    ) : (
+                        <div className="space-y-2 mb-4">
+                            {plans.map((plan) => (
+                                <div
+                                    key={plan.id}
+                                    className="border rounded-lg p-3 flex justify-between"
                                 >
-                                    Copy link
-                                </button>
-                            </div>
-                        </section>
+                                    <div>
+                                        <p className="font-medium">{plan.name}</p>
+                                        <p className="text-xs text-slate-500">
+                                            {safePrice(plan.price)} {plan.currency} /{" "}
+                                            {plan.duration_days} days
+                                        </p>
+                                    </div>
 
-                        {/* Plans list + create form */}
-                        <section className="bg-white border border-slate-200 rounded-2xl p-4">
-                            <h2 className="text-sm font-semibold text-slate-800 mb-3">
-                                Subscription plans
-                            </h2>
-
-                            {plans.length === 0 ? (
-                                <p className="text-sm text-slate-500 mb-4">
-                                    You don&apos;t have any plans yet. Create your first plan
-                                    below.
-                                </p>
-                            ) : (
-                                <div className="space-y-2 mb-5">
-                                    {plans.map((plan) => (
-                                        <div
-                                            key={plan.id}
-                                            className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                                        >
-                                            <div>
-                                                <p className="font-medium text-slate-800">
-                                                    {plan.name}
-                                                </p>
-                                                <p className="text-xs text-slate-500">
-                                                    {plan.price.toFixed(2)} {plan.currency} /{" "}
-                                                    {plan.duration_days} days
-                                                </p>
-                                            </div>
-                                            <span
-                                                className={`text-xs font-medium ${plan.active
-                                                        ? "text-emerald-600"
-                                                        : "text-slate-400"
-                                                    }`}
-                                            >
-                                                {plan.active ? "Active" : "Inactive"}
-                                            </span>
-                                        </div>
-                                    ))}
+                                    <span
+                                        className={`text-xs font-semibold ${plan.active ? "text-green-600" : "text-slate-400"
+                                            }`}
+                                    >
+                                        {plan.active ? "Active" : "Inactive"}
+                                    </span>
                                 </div>
-                            )}
+                            ))}
+                        </div>
+                    )}
 
-                            <div className="border-t border-slate-200 pt-4 mt-2">
-                                <h3 className="text-xs font-semibold text-slate-700 mb-2">
-                                    Create new plan
-                                </h3>
-                                <form
-                                    onSubmit={handleCreatePlan}
-                                    className="grid gap-3 md:grid-cols-4"
-                                >
-                                    <div className="md:col-span-2">
-                                        <label className="block text-xs font-medium text-slate-700 mb-1">
-                                            Name
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={planName}
-                                            onChange={(e) => setPlanName(e.target.value)}
-                                            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                                            placeholder="Monthly access"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-medium text-slate-700 mb-1">
-                                            Price
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={planPrice}
-                                            onChange={(e) => setPlanPrice(e.target.value)}
-                                            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                                            placeholder="9.99"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-medium text-slate-700 mb-1">
-                                            Duration (days)
-                                        </label>
-                                        <input
-                                            type="number"
-                                            min={1}
-                                            value={planDuration}
-                                            onChange={(e) => setPlanDuration(e.target.value)}
-                                            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                                            placeholder="30"
-                                        />
-                                    </div>
+                    {/* Create plan */}
+                    <form onSubmit={handleCreatePlan} className="grid gap-3">
+                        <div>
+                            <label className="text-xs">Name</label>
+                            <input
+                                className="border rounded-xl px-3 py-2 w-full text-sm"
+                                value={planName}
+                                onChange={(e) => setPlanName(e.target.value)}
+                            />
+                        </div>
 
-                                    <div className="md:col-span-1">
-                                        <label className="block text-xs font-medium text-slate-700 mb-1">
-                                            Currency
-                                        </label>
-                                        <select
-                                            value={planCurrency}
-                                            onChange={(e) => setPlanCurrency(e.target.value)}
-                                            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                                        >
-                                            <option value="EUR">EUR</option>
-                                            <option value="USD">USD</option>
-                                        </select>
-                                    </div>
-
-                                    <div className="md:col-span-3 flex items-end">
-                                        <button
-                                            type="submit"
-                                            disabled={creating}
-                                            className={`inline-flex items-center px-4 py-2 rounded-xl text-sm font-medium ${creating
-                                                    ? "bg-slate-200 text-slate-500 cursor-wait"
-                                                    : "bg-indigo-600 text-white hover:bg-indigo-700"
-                                                }`}
-                                        >
-                                            {creating ? "Creating…" : "Create plan"}
-                                        </button>
-                                    </div>
-                                </form>
+                        <div className="grid grid-cols-3 gap-3">
+                            <div>
+                                <label className="text-xs">Price</label>
+                                <input
+                                    className="border rounded-xl px-3 py-2 text-sm w-full"
+                                    value={planPrice}
+                                    onChange={(e) => setPlanPrice(e.target.value)}
+                                />
                             </div>
-                        </section>
-                    </>
-                )}
+
+                            <div>
+                                <label className="text-xs">Duration</label>
+                                <input
+                                    type="number"
+                                    className="border rounded-xl px-3 py-2 text-sm w-full"
+                                    value={planDuration}
+                                    onChange={(e) => setPlanDuration(e.target.value)}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-xs">Currency</label>
+                                <select
+                                    className="border rounded-xl px-3 py-2 text-sm w-full"
+                                    value={planCurrency}
+                                    onChange={(e) => setPlanCurrency(e.target.value)}
+                                >
+                                    <option value="EUR">EUR</option>
+                                    <option value="USD">USD</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button
+                            type="submit"
+                            className={`px-4 py-2 rounded-xl text-white ${creating ? "bg-slate-400" : "bg-indigo-600 hover:bg-indigo-700"
+                                }`}
+                        >
+                            {creating ? "Creating..." : "Create plan"}
+                        </button>
+                    </form>
+                </section>
             </div>
         </AppLayout>
     );
