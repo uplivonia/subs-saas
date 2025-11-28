@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+from pydantic import BaseModel
+
 from app.core.stripe_config import create_checkout_session
 from app.core.config import settings
 from app.db.session import get_db
@@ -12,6 +14,7 @@ from app.models.subscription import Subscription
 from app.models.plan import SubscriptionPlan
 from app.models.user import User
 from app.models.project import Project
+from app.models.payout import PayoutRequest  # 👈 новая модель
 
 import stripe
 from jose import jwt, JWTError
@@ -235,8 +238,8 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             db.commit()
             return {"received": True}
 
-        # Сколько отдаём автору? например 85% от суммы
-        platform_fee_pct = Decimal("0.15")
+        # Комиссия платформы 10% → 90% креатору
+        platform_fee_pct = Decimal("0.10")   # 👈 10% нам
         gross_amount = Decimal(str(payment.amount))  # например 9.99
         creator_amount = gross_amount * (Decimal("1.0") - platform_fee_pct)
 
@@ -267,11 +270,8 @@ async def stripe_cancel():
 
 
 # =========================================================
-# STRIPE CONNECT: CREATOR PAYOUT ACCOUNT (ПОКА НЕ ИСПОЛЬЗУЕМ)
+# STRIPE CONNECT: CREATOR PAYOUT ACCOUNT (НЕ ИСПОЛЬЗУЕМ)
 # =========================================================
-# Эти endpoints можно оставить на будущее, но на фронте их НЕ вызываем.
-# Текущая логика — один общий бизнес-аккаунт Stripe, а авторам идёт
-# внутренний баланс + ручные выплаты.
 @router.post("/connect/link")
 async def create_connect_link(
     authorization: str = Header(None),
@@ -289,4 +289,110 @@ async def connect_status(
         "connected": False,
         "stripe_account_id": None,
         "stripe_onboarded": False,
+    }
+
+
+# =========================================================
+# CREATOR BALANCE & PAYOUTS
+# =========================================================
+
+class PayoutSettingsUpdate(BaseModel):
+    payout_method: str
+    payout_details: str
+
+
+@router.get("/me/summary")
+def get_my_payment_summary(
+    authorization: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Возвращает баланс и настройки выплат для текущего юзера (креатора).
+    """
+    user = get_current_user_from_token(authorization, db)
+
+    return {
+        "balance": (user.balance_cents or 0) / 100,
+        "payout_method": user.payout_method,
+        "payout_details": user.payout_details,
+    }
+
+
+@router.post("/me/payout-settings")
+def update_my_payout_settings(
+    payload: PayoutSettingsUpdate,
+    authorization: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Обновляет способ и реквизиты выплат креатора.
+    """
+    user = get_current_user_from_token(authorization, db)
+
+    user.payout_method = payload.payout_method.strip()
+    user.payout_details = payload.payout_details.strip()
+    db.commit()
+    db.refresh(user)
+
+    return {"ok": True}
+
+
+class PayoutRequestCreate(BaseModel):
+    # сейчас выводим весь баланс,
+    # поле оставляем на будущее (частичный вывод)
+    amount: float | None = None
+
+
+@router.post("/me/payout-request")
+def create_payout_request(
+    payload: PayoutRequestCreate,
+    authorization: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Создает заявку на вывод средств.
+    Сейчас выводится весь доступный баланс.
+    """
+    user = get_current_user_from_token(authorization, db)
+
+    current_cents = user.balance_cents or 0
+    if current_cents <= 0:
+        raise HTTPException(status_code=400, detail="No funds available for payout")
+
+    if not user.payout_method or not user.payout_details:
+        raise HTTPException(
+            status_code=400,
+            detail="Payout method and details are not set",
+        )
+
+    # минимум, например 20 EUR
+    min_cents = 20 * 100
+    if current_cents < min_cents:
+        raise HTTPException(
+            status_code=400,
+            detail="Minimum payout amount is 20 EUR",
+        )
+
+    amount_cents = current_cents
+
+    payout = PayoutRequest(
+        user_id=user.id,
+        amount_cents=amount_cents,
+        status="pending",
+        payout_method=user.payout_method,
+        payout_details=user.payout_details,
+    )
+
+    # для MVP просто списываем баланс (можно сделать hold-статус)
+    user.balance_cents = 0
+
+    db.add(payout)
+    db.commit()
+    db.refresh(payout)
+
+    return {
+        "ok": True,
+        "payout_id": payout.id,
+        "amount": amount_cents / 100,
+        "status": payout.status,
     }
