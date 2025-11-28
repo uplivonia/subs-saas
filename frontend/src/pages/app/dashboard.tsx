@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 
 const API_BASE = "https://subs-saas.onrender.com/api/v1";
 
-type SummaryResponse = {
+type OverviewResponse = {
     balance: number;
-    payout_method: string | null;
-    payout_details: string | null;
+    connected_channels: number;
+    active_subscribers: number;
+    total_revenue: number;
 };
 
 type Project = {
@@ -19,7 +20,7 @@ type Project = {
 export default function Dashboard() {
     const [loading, setLoading] = useState(true);
     const [projects, setProjects] = useState<Project[]>([]);
-    const [summary, setSummary] = useState<SummaryResponse | null>(null);
+    const [overview, setOverview] = useState<OverviewResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     const loadData = async () => {
@@ -33,15 +34,14 @@ export default function Dashboard() {
         }
 
         try {
-            // грузим проекты
-            const [projectsRes, summaryRes] = await Promise.all([
+            const [projectsRes, overviewRes] = await Promise.all([
                 fetch(`${API_BASE}/projects/`, {
                     headers: {
                         "Content-Type": "application/json",
                         Authorization: `Bearer ${token}`,
                     },
                 }),
-                fetch(`${API_BASE}/payments/me/summary`, {
+                fetch(`${API_BASE}/payments/creator/overview`, {
                     headers: {
                         "Content-Type": "application/json",
                         Authorization: `Bearer ${token}`,
@@ -58,11 +58,11 @@ export default function Dashboard() {
                 }
             }
 
-            if (!summaryRes.ok) {
-                console.error("Failed to load summary:", await summaryRes.text());
+            if (!overviewRes.ok) {
+                console.error("Failed to load overview:", await overviewRes.text());
             } else {
-                const summaryData = await summaryRes.json();
-                setSummary(summaryData as SummaryResponse);
+                const ov = (await overviewRes.json()) as OverviewResponse;
+                setOverview(ov);
             }
         } catch (e) {
             console.error("Error while loading dashboard data:", e);
@@ -76,13 +76,16 @@ export default function Dashboard() {
         loadData();
     }, []);
 
-    const balance = summary?.balance ?? 0;
-    const channelsCount = projects.length;
+    const balance = overview?.balance ?? 0;
+    const activeSubscribers = overview?.active_subscribers ?? 0;
+    const connectedChannels =
+        overview?.connected_channels ?? projects.length ?? 0;
+    const totalRevenue = overview?.total_revenue ?? 0;
 
     const stats = [
         { label: "Available balance", value: `EUR ${balance.toFixed(2)}` },
-        { label: "Active subscribers", value: "0" }, // TODO: подключить реальный подсчёт, когда появится API
-        { label: "Connected channels", value: String(channelsCount) },
+        { label: "Active subscribers", value: String(activeSubscribers) },
+        { label: "Connected channels", value: String(connectedChannels) },
     ];
 
     return (
@@ -109,6 +112,13 @@ export default function Dashboard() {
                             </div>
                         ))}
                     </div>
+
+                    <p className="mt-3 text-xs text-slate-500">
+                        Total revenue from all paid subscriptions:{" "}
+                        <span className="font-semibold">
+                            EUR {totalRevenue.toFixed(2)}
+                        </span>
+                    </p>
                 </section>
 
                 {/* Channels + payments preview */}
@@ -128,7 +138,7 @@ export default function Dashboard() {
 
                         {loading ? (
                             <p className="text-sm text-slate-500">Loading channels...</p>
-                        ) : channelsCount === 0 ? (
+                        ) : connectedChannels === 0 ? (
                             <>
                                 <p className="text-sm text-slate-500 mb-4">
                                     You don&apos;t have any channels yet.
@@ -143,8 +153,8 @@ export default function Dashboard() {
                         ) : (
                             <>
                                 <p className="text-sm text-slate-500 mb-3">
-                                    You have {channelsCount}{" "}
-                                    {channelsCount === 1 ? "channel" : "channels"} connected.
+                                    You have {connectedChannels}{" "}
+                                    {connectedChannels === 1 ? "channel" : "channels"} connected.
                                 </p>
                                 <ul className="space-y-1 mb-3">
                                     {projects.slice(0, 3).map((p) => (
@@ -152,9 +162,7 @@ export default function Dashboard() {
                                             key={p.id}
                                             className="text-sm text-slate-700 flex items-center justify-between"
                                         >
-                                            <span>
-                                                {p.title || `Channel #${p.id}`}
-                                            </span>
+                                            <span>{p.title || `Channel #${p.id}`}</span>
                                             {p.telegram_username && (
                                                 <span className="text-xs text-slate-400">
                                                     {p.telegram_username}

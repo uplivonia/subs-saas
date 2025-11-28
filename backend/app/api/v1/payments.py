@@ -15,6 +15,7 @@ from app.models.plan import SubscriptionPlan
 from app.models.user import User
 from app.models.project import Project
 from app.models.payout import PayoutRequest  # 👈 новая модель
+from sqlalchemy import func
 
 import stripe
 from jose import jwt, JWTError
@@ -309,7 +310,7 @@ async def stripe_cancel():
 
 
 # =========================================================
-# STRIPE CONNECT: CREATOR PAYOUT ACCOUNT (НЕ ИСПОЛЬЗУЕМ)
+# STRIPE CONNECT: CREATOR PAYOUT ACCOUNT 
 # =========================================================
 @router.post("/connect/link")
 async def create_connect_link(
@@ -377,8 +378,7 @@ def update_my_payout_settings(
 
 
 class PayoutRequestCreate(BaseModel):
-    # сейчас выводим весь баланс,
-    # поле оставляем на будущее (частичный вывод)
+   
     amount: float | None = None
 
 
@@ -404,7 +404,7 @@ def create_payout_request(
             detail="Payout method and details are not set",
         )
 
-    # минимум, например 20 EUR
+    
     min_cents = 20 * 100
     if current_cents < min_cents:
         raise HTTPException(
@@ -434,4 +434,58 @@ def create_payout_request(
         "payout_id": payout.id,
         "amount": amount_cents / 100,
         "status": payout.status,
+    }
+@router.get("/creator/overview")
+def get_creator_overview(
+    authorization: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Краткая сводка для дашборда креатора:
+    - текущий баланс
+    - количество подключенных каналов
+    - количество активных подписчиков
+    - общая выручка по всем успешным платежам
+    """
+    user = get_current_user_from_token(authorization, db)
+    now = datetime.utcnow()
+
+    # сколько каналов у юзера
+    connected_channels = (
+        db.query(func.count(Project.id))
+        .filter(Project.user_id == user.id)
+        .scalar()
+        or 0
+    )
+
+    # количество уникальных end_user с активной подпиской на его проекты
+    active_subscribers = (
+        db.query(func.count(func.distinct(Subscription.end_user_id)))
+        .join(Project, Subscription.project_id == Project.id)
+        .filter(
+            Project.user_id == user.id,
+            Subscription.status == "active",
+            Subscription.end_at >= now,
+        )
+        .scalar()
+        or 0
+    )
+
+    # общая выручка по всем paid-платежам на его проекты
+    total_revenue = (
+        db.query(func.coalesce(func.sum(Payment.amount), 0.0))
+        .join(Project, Payment.project_id == Project.id)
+        .filter(
+            Project.user_id == user.id,
+            Payment.status == "paid",
+        )
+        .scalar()
+        or 0.0
+    )
+
+    return {
+        "balance": (user.balance_cents or 0) / 100,
+        "connected_channels": int(connected_channels),
+        "active_subscribers": int(active_subscribers),
+        "total_revenue": float(total_revenue),
     }
