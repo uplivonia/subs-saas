@@ -18,6 +18,7 @@ from app.models.payout import PayoutRequest  # 👈 новая модель
 
 import stripe
 from jose import jwt, JWTError
+import aiohttp  # 👈 для отправки сообщений в Telegram
 
 router = APIRouter()
 
@@ -255,6 +256,44 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             f"credited {creator_amount} to creator {creator.id}. "
             f"New balance: {creator.balance_cents / 100:.2f}."
         )
+
+        # --- 6. ОТПРАВЛЯЕМ СООБЩЕНИЕ В TELEGRAM С ПОДТВЕРЖДЕНИЕМ ---
+        try:
+            if payment.telegram_id:
+                # пытаемся собрать ссылку на канал по username проекта
+                channel_url = None
+                if project and project.username:
+                    username_clean = project.username.lstrip("@")
+                    channel_url = f"https://t.me/{username_clean}"
+
+                text_lines = [
+                    "✅ Payment received! Your subscription is now active."
+                ]
+
+                if channel_url:
+                    text_lines.append(
+                        f"Here is your channel link:\n{channel_url}"
+                    )
+                else:
+                    text_lines.append(
+                        "You now have access to the channel. "
+                        "If you don't see the invite, please contact the creator."
+                    )
+
+                text = "\n\n".join(text_lines)
+
+                async with aiohttp.ClientSession() as session_http:
+                    await session_http.post(
+                        f"https://api.telegram.org/bot{settings.BOT_TOKEN}/sendMessage",
+                        json={
+                            "chat_id": payment.telegram_id,
+                            "text": text,
+                        },
+                        timeout=10,
+                    )
+
+        except Exception as e:
+            print(f"[WEBHOOK] ⚠ Failed to send Telegram notification: {e}")
 
     return {"received": True}
 
